@@ -1,0 +1,41 @@
+# Colonial Mercenaries - Unreal Engine 5.8
+# Keep source, project configuration, maps, and assets in version control.
+# Exclude machine-generated build, cache, and IDE files.
+
+# Unreal-generated folders (project and plugins)
+**/Binaries/
+**/Intermediate/
+**/Saved/
+**/DerivedDataCache/
+
+# IDE and generated project files
+.vs/
+.idea/
+.vscode/
+*.sln
+*.suo
+*.VC.db
+*.VC.opendb
+*.sdf
+*.opensdf
+*.xcodeproj/
+*.xcworkspace/
+*.xcuserstate
+*.user
+*.userprefs
+
+# Compiled/generated artifacts
+*.obj
+*.pch
+*.ipch
+*.pdb
+*.tlog
+*.tmp
+*.log
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Do not ignore Source/, Content/, Config/, Build/, Plugins/, or .uproject.
