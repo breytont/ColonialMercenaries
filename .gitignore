@@ -39,3 +39,6 @@ Thumbs.db
 desktop.ini
 
 # Do not ignore Source/, Content/, Config/, Build/, Plugins/, or .uproject.
+
+# Local editor preferences (per-user)
+Config/DefaultEditorPerProjectUserSettings.ini
