@@ -47,7 +47,7 @@ protected:
 	virtual void BeginPlay() override;
 
 	/** Tunable for each soldier, vehicle, or equipment Blueprint. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Health", meta=(ClampMin="1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Health", meta=(ClampMin="1.0"))
 	float MaxHealth = 100.0f;
 
 	UPROPERTY(ReplicatedUsing=OnRep_CurrentHealth, BlueprintReadOnly, Category="Colonial Mercenaries|Health")
