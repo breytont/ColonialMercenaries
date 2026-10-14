@@ -1,11 +1,27 @@
 // Copyright (c) Colonial Mercenaries contributors. All rights reserved.
 #include "Combat/CMFactionComponent.h"
+#include "GameFramework/Actor.h"
 #include "Net/UnrealNetwork.h"
 
 UCMFactionComponent::UCMFactionComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
+}
+
+void UCMFactionComponent::SetFactionId(FGameplayTag NewFactionId)
+{
+	AActor* Owner = GetOwner();
+	if (!IsValid(Owner) || !Owner->HasAuthority())
+	{
+		return;
+	}
+
+	if (FactionId != NewFactionId)
+	{
+		FactionId = NewFactionId;
+		Owner->ForceNetUpdate();
+	}
 }
 
 bool UCMFactionComponent::IsHostileTo(const UCMFactionComponent* Other) const
