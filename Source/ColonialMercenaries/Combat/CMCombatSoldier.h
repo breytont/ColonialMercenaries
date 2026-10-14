@@ -51,6 +51,10 @@ protected:
 	UFUNCTION()
 	void HandleDeath();
 
+	/** Log successful damage on the authority for test verification. */
+	UFUNCTION()
+	void HandleHealthChanged(float NewHealth, float NewMaxHealth);
+
 	/** A simple, replaceable visual so the prototype works without new assets. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual")
 	TObjectPtr<UStaticMeshComponent> BodyVisual;
@@ -69,7 +73,7 @@ protected:
 	float DecisionInterval = 0.35f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="100.0", UIMin="100.0"))
-	float DetectionRange = 1800.0f;
+	float DetectionRange = 6500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="100.0", UIMin="100.0"))
 	float WeaponRange = 950.0f;
@@ -95,4 +99,6 @@ private:
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACMCombatSoldier> CurrentTarget;
 	float NextShotTime = 0.0f;
+	bool bReportedMissingController = false;
+	bool bReportedMoveFailure = false;
 };
