@@ -29,6 +29,10 @@ ACMCombatSoldier::ACMCombatSoldier()
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
 	GetCapsuleComponent()->InitCapsuleSize(34.0f, 96.0f);
+	// The stock Pawn capsule can ignore Visibility traces. Explicitly block
+	// them so prototype hitscan shots actually register against soldiers.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	SetCanBeDamaged(true);
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	bUseControllerRotationYaw = false;
 
@@ -66,6 +70,7 @@ void ACMCombatSoldier::BeginPlay()
 
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
 	HealthComponent->OnDied.AddDynamic(this, &ACMCombatSoldier::HandleDeath);
+	HealthComponent->OnHealthChanged.AddDynamic(this, &ACMCombatSoldier::HandleHealthChanged);
 
 	const FString FactionName = FactionComponent->GetFactionId().ToString();
 	if (FactionName == TEXT("Faction.Prototype.Red"))
@@ -144,6 +149,12 @@ void ACMCombatSoldier::UpdateCombat()
 	}
 
 	AAIController* AI = Cast<AAIController>(GetController());
+	if (!AI && !bReportedMissingController)
+	{
+		bReportedMissingController = true;
+		UE_LOG(LogTemp, Warning, TEXT("CM combat soldier %s has no AIController; confirm Auto Possess AI is Placed in World or Spawned."), *GetName());
+	}
+
 	ACMCombatSoldier* Target = FindClosestHostile();
 
 	if (!IsValid(Target))
@@ -161,7 +172,20 @@ void ACMCombatSoldier::UpdateCombat()
 		if (AI && (CurrentTarget.Get() != Target
 			|| AI->GetMoveStatus() != EPathFollowingStatus::Moving))
 		{
-			AI->MoveToActor(Target, WeaponRange * 0.8f);
+			const EPathFollowingRequestResult::Type MoveResult = AI->MoveToActor(
+				Target, WeaponRange * 0.8f);
+			if (MoveResult == EPathFollowingRequestResult::Failed)
+			{
+				if (!bReportedMoveFailure)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("CM combat soldier %s: navigation toward %s failed. Ensure the soldiers are on connected green NavMesh areas."), *GetName(), *Target->GetName());
+					bReportedMoveFailure = true;
+				}
+			}
+			else
+			{
+				bReportedMoveFailure = false;
+			}
 		}
 	}
 	else
@@ -213,6 +237,15 @@ void ACMCombatSoldier::MulticastDrawShot_Implementation(FVector Start, FVector E
 {
 	// Temporary combat visualization, not the final tracer/VFX system.
 	DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false, 0.22f, 0, 2.0f);
+}
+
+void ACMCombatSoldier::HandleHealthChanged(float NewHealth, float NewMaxHealth)
+{
+	if (HasAuthority())
+	{
+		UE_LOG(LogTemp, Log, TEXT("CM combat soldier %s health: %.0f / %.0f"),
+			*GetName(), NewHealth, NewMaxHealth);
+	}
 }
 
 void ACMCombatSoldier::HandleDeath()
