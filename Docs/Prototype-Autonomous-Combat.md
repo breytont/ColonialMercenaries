@@ -18,7 +18,11 @@ committed to by this implementation.
 - Timer-driven overlap queries for hostile soldiers; **no actor Tick** and
   no repeated GetAllActorsOfClass calls.
 - Raycast shots that respect ordinary level collision, with
-  `ApplyDamage` on the server.
+  `ApplyDamage` on the server; soldier capsules explicitly block Visibility.
+- Expanded prototype detection to 6,500 units so soldiers engage across
+  the starter test map; editable per soldier.
+- Output Log warnings for missing AI controllers / failed navigation, and
+  health-change messages for verified damage.
 - Unreliable multicast debug tracer for connected clients.
 - Simple engine cube and overhead faction label, no external assets.
 - Fully editable AI range, damage, rate, speed, and timing per actor.
@@ -49,8 +53,12 @@ committed to by this implementation.
 
 ## Caveats and future work
 
-- The trace currently relies on ordinary Visibility collision. If soldiers
-  fire but receive no damage, verify the target capsule blocks Visibility.
+- The trace uses ordinary Visibility collision. Soldier capsules now block
+  Visibility by default; other intervening blocking geometry still stops shots.
+- If soldiers do not pursue each other, open Window > Developer Tools >
+  Output Log and search for `CM combat soldier`; warnings name missing AI
+  controllers or unsuccessful MoveToActor requests.
+- If a soldier is hit, the server logs its health total for confirmation.
 - This initial prototype targets **other CM Combat Soldiers**, not the
   player or arbitrary vehicles. That will be extended after validation.
 - The head label is assigned on BeginPlay for placed actors and isn't a
