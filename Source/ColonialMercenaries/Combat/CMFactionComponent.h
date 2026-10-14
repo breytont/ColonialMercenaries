@@ -26,8 +26,8 @@ public:
 	bool IsHostileTo(const UCMFactionComponent* Other) const;
 
 protected:
-	/** Assigned in the actor's Blueprint defaults. An unset tag is neutral. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Replicated, Category="Colonial Mercenaries|Factions")
+	/** Editable in actor instances or Blueprint defaults. An unset tag is neutral. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category="Colonial Mercenaries|Factions")
 	FGameplayTag FactionId;
 
 public:
