@@ -13,6 +13,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "TimerManager.h"
@@ -201,7 +202,7 @@ void ACMCombatSoldier::FireAt(ACMCombatSoldier* Target)
 		if (IsValid(HitActor->FindComponentByClass<UCMHealthComponent>()))
 		{
 			UGameplayStatics::ApplyDamage(
-				HitActor, ShotDamage, GetController(), this, nullptr);
+				HitActor, ShotDamage, GetController(), this, UDamageType::StaticClass());
 		}
 	}
 
