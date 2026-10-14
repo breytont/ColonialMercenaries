@@ -25,6 +25,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Factions")
 	bool IsHostileTo(const UCMFactionComponent* Other) const;
 
+	/** Authority-only faction assignment, including deferred soldier spawns. */
+	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Factions")
+	void SetFactionId(FGameplayTag NewFactionId);
+
 protected:
 	/** Editable in actor instances or Blueprint defaults. An unset tag is neutral. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category="Colonial Mercenaries|Factions")
