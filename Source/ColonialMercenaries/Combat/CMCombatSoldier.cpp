@@ -97,6 +97,28 @@ void ACMCombatSoldier::BeginPlay()
 	}
 }
 
+bool ACMCombatSoldier::HasLineOfFire(const ACMCombatSoldier* Target) const
+{
+	if (!IsValid(Target) || !GetWorld())
+	{
+		return false;
+	}
+
+	const FVector Start = GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+	const FVector End = Target->GetActorLocation()
+		+ FVector(0.0f, 0.0f, Target->AimHeight);
+
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	FHitResult Hit;
+	// A soldier can fire only if the first thing the ray strikes is its
+	// intended enemy, not a wall or another soldier.
+	return GetWorld()->LineTraceSingleByChannel(
+		Hit, Start, End, ECC_Visibility, Params)
+		&& Hit.GetActor() == Target;
+}
+
 ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
 {
 	UWorld* World = GetWorld();
@@ -116,8 +138,10 @@ ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
 		Overlaps, GetActorLocation(), FQuat::Identity, ObjectTypes,
 		FCollisionShape::MakeSphere(DetectionRange), QueryParams);
 
-	ACMCombatSoldier* BestEnemy = nullptr;
-	float BestDistanceSquared = DetectionRange * DetectionRange;
+	ACMCombatSoldier* ClosestVisible = nullptr;
+	ACMCombatSoldier* ClosestObstructed = nullptr;
+	float VisibleDistanceSquared = FMath::Square(DetectionRange);
+	float ObstructedDistanceSquared = FMath::Square(DetectionRange);
 
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
@@ -131,14 +155,29 @@ ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
 
 		const float DistSquared = FVector::DistSquared(
 			GetActorLocation(), Candidate->GetActorLocation());
-		if (DistSquared < BestDistanceSquared)
+		if (DistSquared >= FMath::Square(DetectionRange))
 		{
-			BestDistanceSquared = DistSquared;
-			BestEnemy = Candidate;
+			continue;
+		}
+
+		// Prioritize an enemy we can actually shoot. Otherwise approach the
+		// nearest known opposing soldier until a firing lane opens.
+		if (HasLineOfFire(Candidate))
+		{
+			if (DistSquared < VisibleDistanceSquared)
+			{
+				VisibleDistanceSquared = DistSquared;
+				ClosestVisible = Candidate;
+			}
+		}
+		else if (DistSquared < ObstructedDistanceSquared)
+		{
+			ObstructedDistanceSquared = DistSquared;
+			ClosestObstructed = Candidate;
 		}
 	}
 
-	return BestEnemy;
+	return ClosestVisible ? ClosestVisible : ClosestObstructed;
 }
 
 void ACMCombatSoldier::UpdateCombat()
@@ -152,51 +191,76 @@ void ACMCombatSoldier::UpdateCombat()
 	if (!AI && !bReportedMissingController)
 	{
 		bReportedMissingController = true;
-		UE_LOG(LogTemp, Warning, TEXT("CM combat soldier %s has no AIController; confirm Auto Possess AI is Placed in World or Spawned."), *GetName());
+		UE_LOG(LogTemp, Warning,
+			TEXT("CM combat soldier %s has no AIController; confirm Auto Possess AI is Placed in World or Spawned."),
+			*GetName());
 	}
 
 	ACMCombatSoldier* Target = FindClosestHostile();
-
 	if (!IsValid(Target))
 	{
 		CurrentTarget.Reset();
+		bLastMoveWasBlockedApproach = false;
 		if (AI) { AI->StopMovement(); }
 		return;
 	}
 
-	const float DistSquared = FVector::DistSquared(
+	const float TimeNow = GetWorld()->GetTimeSeconds();
+	const float DistanceSquared = FVector::DistSquared(
 		GetActorLocation(), Target->GetActorLocation());
+	const bool bClearShot = HasLineOfFire(Target);
 
-	if (DistSquared > FMath::Square(WeaponRange))
+	if (DistanceSquared <= FMath::Square(WeaponRange) && bClearShot)
 	{
-		if (AI && (CurrentTarget.Get() != Target
-			|| AI->GetMoveStatus() != EPathFollowingStatus::Moving))
+		// An unobstructed target is within weapon range: hold position, fire.
+		if (AI) { AI->StopMovement(); }
+		bLastMoveWasBlockedApproach = false;
+
+		if (TimeNow >= NextShotTime)
 		{
-			const EPathFollowingRequestResult::Type MoveResult = AI->MoveToActor(
-				Target, WeaponRange * 0.8f);
-			if (MoveResult == EPathFollowingRequestResult::Failed)
-			{
-				if (!bReportedMoveFailure)
-				{
-					UE_LOG(LogTemp, Warning, TEXT("CM combat soldier %s: navigation toward %s failed. Ensure the soldiers are on connected green NavMesh areas."), *GetName(), *Target->GetName());
-					bReportedMoveFailure = true;
-				}
-			}
-			else
-			{
-				bReportedMoveFailure = false;
-			}
+			FireAt(Target);
+			NextShotTime = TimeNow + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
 		}
 	}
 	else
 	{
-		if (AI) { AI->StopMovement(); }
-		if (GetWorld()->GetTimeSeconds() >= NextShotTime)
+		// At range with no line of fire, move toward the target on NavMesh
+		// rather than repeatedly firing into a wall. If we have a firing
+		// lane but are out of range, approach only to normal weapon range.
+		const bool bBlockedApproach = !bClearShot;
+		const float AcceptanceRadius = bBlockedApproach
+			? FMath::Clamp(BlockedApproachDistance, 50.0f, FMath::Max(50.0f, WeaponRange * 0.75f))
+			: WeaponRange * 0.8f;
+
+		if (AI)
 		{
-			FireAt(Target);
-			NextShotTime = GetWorld()->GetTimeSeconds()
-				+ 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
+			const bool bNewTarget = CurrentTarget.Get() != Target;
+			const bool bChangedApproach = bLastMoveWasBlockedApproach != bBlockedApproach;
+			const bool bStoppedMoving = AI->GetMoveStatus() != EPathFollowingStatus::Moving;
+
+			if (bNewTarget || bChangedApproach
+				|| (bStoppedMoving && TimeNow >= NextMoveRequestTime))
+			{
+				const EPathFollowingRequestResult::Type MoveResult =
+					AI->MoveToActor(Target, AcceptanceRadius);
+				NextMoveRequestTime = TimeNow + FMath::Max(PathRetryInterval, 0.1f);
+				if (MoveResult == EPathFollowingRequestResult::Failed)
+				{
+					if (!bReportedMoveFailure)
+					{
+						UE_LOG(LogTemp, Warning,
+							TEXT("CM combat soldier %s cannot navigate to %s. Confirm connected NavMesh around obstacles."),
+							*GetName(), *Target->GetName());
+						bReportedMoveFailure = true;
+					}
+				}
+				else
+				{
+					bReportedMoveFailure = false;
+				}
+			}
 		}
+		bLastMoveWasBlockedApproach = bBlockedApproach;
 	}
 
 	CurrentTarget = Target;
