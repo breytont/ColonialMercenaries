@@ -5,6 +5,11 @@
 #include "Net/UnrealNetwork.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "UObject/ConstructorHelpers.h"
+#include "TimerManager.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -49,6 +54,63 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	// Lightweight placeholder rifle built entirely from stock engine meshes.
+	// All parts share an attachment to the mannequin's right hand. Designers
+	// can edit PrototypeRifleRoot's transform in BP_ThirdPersonCharacter.
+	PrototypeRifleRoot = CreateDefaultSubobject<USceneComponent>(TEXT("PrototypeRifleRoot"));
+	PrototypeRifleRoot->SetupAttachment(GetMesh(), TEXT("hand_r"));
+	PrototypeRifleRoot->SetRelativeLocation(FVector(4.0f, -8.0f, -3.0f));
+	PrototypeRifleRoot->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f));
+
+	PrototypeRifleReceiver = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeRifleReceiver"));
+	PrototypeRifleReceiver->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleReceiver->SetRelativeLocation(FVector(10.0f, 0.0f, 0.0f));
+	PrototypeRifleReceiver->SetRelativeScale3D(FVector(0.5f, 0.08f, 0.09f));
+
+	PrototypeRifleBarrel = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeRifleBarrel"));
+	PrototypeRifleBarrel->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleBarrel->SetRelativeLocation(FVector(48.0f, 0.0f, 0.0f));
+	PrototypeRifleBarrel->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f));
+	PrototypeRifleBarrel->SetRelativeScale3D(FVector(0.03f, 0.03f, 0.43f));
+
+	PrototypeRifleStock = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeRifleStock"));
+	PrototypeRifleStock->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleStock->SetRelativeLocation(FVector(-24.0f, 0.0f, -2.0f));
+	PrototypeRifleStock->SetRelativeScale3D(FVector(0.22f, 0.065f, 0.085f));
+
+	PrototypeRifleGrip = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeRifleGrip"));
+	PrototypeRifleGrip->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleGrip->SetRelativeLocation(FVector(2.0f, 0.0f, -12.0f));
+	PrototypeRifleGrip->SetRelativeScale3D(FVector(0.075f, 0.055f, 0.15f));
+
+	PrototypeRifleSight = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeRifleSight"));
+	PrototypeRifleSight->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleSight->SetRelativeLocation(FVector(38.0f, 0.0f, 7.0f));
+	PrototypeRifleSight->SetRelativeScale3D(FVector(0.05f, 0.025f, 0.06f));
+
+	PrototypeRifleMuzzle = CreateDefaultSubobject<USceneComponent>(TEXT("PrototypeRifleMuzzle"));
+	PrototypeRifleMuzzle->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleMuzzle->SetRelativeLocation(FVector(70.0f, 0.0f, 0.0f));
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeShape(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderShape(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+
+	for (UStaticMeshComponent* Part : {
+		PrototypeRifleReceiver.Get(), PrototypeRifleStock.Get(),
+		PrototypeRifleGrip.Get(), PrototypeRifleSight.Get() })
+	{
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		if (CubeShape.Succeeded())
+		{
+			Part->SetStaticMesh(CubeShape.Object);
+		}
+	}
+	PrototypeRifleBarrel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	if (CylinderShape.Succeeded())
+	{
+		PrototypeRifleBarrel->SetStaticMesh(CylinderShape.Object);
+	}
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -232,8 +294,67 @@ void AColonialMercenariesCharacter::UpdateAimingPresentation()
 	bUseControllerRotationYaw = bIsAiming;
 	GetCharacterMovement()->bOrientRotationToMovement = !bIsAiming;
 
-	CameraBoom->TargetArmLength = bIsAiming
+	// Camera presentation is local. Remote proxies only need the replicated
+	// aim state for body rotation; they do not need their cameras updated.
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(AimCameraBlendTimerHandle);
+
+	const float TargetArm = bIsAiming
 		? FMath::Max(AimedCameraArmLength, 100.0f) : NormalCameraArmLength;
-	CameraBoom->SocketOffset = bIsAiming
+	const FVector TargetOffset = bIsAiming
 		? AimedCameraSocketOffset : NormalCameraSocketOffset;
+
+	if (!GetWorld() || AimCameraBlendDuration <= KINDA_SMALL_NUMBER)
+	{
+		CameraBoom->TargetArmLength = TargetArm;
+		CameraBoom->SocketOffset = TargetOffset;
+		return;
+	}
+
+	AimCameraBlendStartArm = CameraBoom->TargetArmLength;
+	AimCameraBlendStartOffset = CameraBoom->SocketOffset;
+	AimCameraBlendStartTime = GetWorld()->GetTimeSeconds();
+
+	if (FMath::IsNearlyEqual(AimCameraBlendStartArm, TargetArm, 0.01f)
+		&& AimCameraBlendStartOffset.Equals(TargetOffset, 0.01f))
+	{
+		return;
+	}
+
+	// Only runs during the short transition; no permanent camera Tick.
+	GetWorldTimerManager().SetTimer(AimCameraBlendTimerHandle, this,
+		&AColonialMercenariesCharacter::UpdateAimCameraBlend, 1.0f / 60.0f, true);
+}
+
+void AColonialMercenariesCharacter::UpdateAimCameraBlend()
+{
+	if (!GetWorld() || !IsValid(CameraBoom))
+	{
+		GetWorldTimerManager().ClearTimer(AimCameraBlendTimerHandle);
+		return;
+	}
+
+	const float Duration = FMath::Max(AimCameraBlendDuration, 0.001f);
+	const float Elapsed = GetWorld()->GetTimeSeconds() - AimCameraBlendStartTime;
+	const float Alpha = FMath::Clamp(Elapsed / Duration, 0.0f, 1.0f);
+	const float Eased = Alpha * Alpha * (3.0f - 2.0f * Alpha);
+
+	const float TargetArm = bIsAiming
+		? FMath::Max(AimedCameraArmLength, 100.0f) : NormalCameraArmLength;
+	const FVector TargetOffset = bIsAiming
+		? AimedCameraSocketOffset : NormalCameraSocketOffset;
+
+	CameraBoom->TargetArmLength =
+		FMath::Lerp(AimCameraBlendStartArm, TargetArm, Eased);
+	CameraBoom->SocketOffset =
+		FMath::Lerp(AimCameraBlendStartOffset, TargetOffset, Eased);
+
+	if (Alpha >= 1.0f)
+	{
+		GetWorldTimerManager().ClearTimer(AimCameraBlendTimerHandle);
+	}
 }

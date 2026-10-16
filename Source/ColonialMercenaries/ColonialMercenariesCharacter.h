@@ -11,6 +11,8 @@ class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 class UCMPrototypeWeaponComponent;
+class USceneComponent;
+class UStaticMeshComponent;
 struct FInputActionValue;
 class FLifetimeProperty;
 
@@ -36,6 +38,30 @@ class AColonialMercenariesCharacter : public ACharacter
 	/** Temporary firearm. Kept separate from input so weapons can evolve. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UCMPrototypeWeaponComponent> PrototypeWeapon;
+
+	/** Editable hand_r attachment: adjust the transform in the character BP. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<USceneComponent> PrototypeRifleRoot;
+
+	/** Simple engine-mesh rifle parts; no third-party assets needed. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UStaticMeshComponent> PrototypeRifleReceiver;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UStaticMeshComponent> PrototypeRifleBarrel;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UStaticMeshComponent> PrototypeRifleStock;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UStaticMeshComponent> PrototypeRifleGrip;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UStaticMeshComponent> PrototypeRifleSight;
+
+	/** Visual anchor for later aligning gunshot VFX and actual projectiles. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<USceneComponent> PrototypeRifleMuzzle;
 	
 protected:
 
@@ -68,7 +94,12 @@ protected:
 	float AimedCameraArmLength = 275.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming")
-	FVector AimedCameraSocketOffset = FVector(0.0f, 55.0f, 15.0f);
+	FVector AimedCameraSocketOffset = FVector(0.0f, 55.0f, 65.0f);
+
+	/** Seconds for a smooth camera transition; zero gives an instant switch. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
+		meta=(ClampMin="0.0", UIMin="0.0"))
+	float AimCameraBlendDuration = 0.22f;
 
 public:
 
@@ -82,6 +113,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	UCMPrototypeWeaponComponent* GetPrototypeWeapon() const { return PrototypeWeapon; }
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	USceneComponent* GetPrototypeRifleMuzzle() const { return PrototypeRifleMuzzle; }
 
 protected:
 
@@ -104,6 +138,9 @@ protected:
 	void SetAiming(bool bNewAiming);
 	void UpdateAimingPresentation();
 
+	/** A short-lived camera timer, only active while entering/exiting aim. */
+	void UpdateAimCameraBlend();
+
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bNewAiming);
 
@@ -116,6 +153,10 @@ protected:
 
 	float NormalCameraArmLength = 400.0f;
 	FVector NormalCameraSocketOffset = FVector::ZeroVector;
+	FTimerHandle AimCameraBlendTimerHandle;
+	float AimCameraBlendStartTime = 0.0f;
+	float AimCameraBlendStartArm = 400.0f;
+	FVector AimCameraBlendStartOffset = FVector::ZeroVector;
 
 public:
 
