@@ -10,7 +10,9 @@
 class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
+class UCMPrototypeWeaponComponent;
 struct FInputActionValue;
+struct FLifetimeProperty;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -30,6 +32,10 @@ class AColonialMercenariesCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
+
+	/** Temporary firearm. Kept separate from input so weapons can evolve. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UCMPrototypeWeaponComponent> PrototypeWeapon;
 	
 protected:
 
@@ -49,12 +55,37 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
+	/** Press to fire one server-validated prototype shot (IA_Fire). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
+	TObjectPtr<UInputAction> FireAction;
+
+	/** Hold to face the look direction and move into shoulder aim (IA_Aim). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
+	TObjectPtr<UInputAction> AimAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
+		meta=(ClampMin="100.0"))
+	float AimedCameraArmLength = 275.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming")
+	FVector AimedCameraSocketOffset = FVector(0.0f, 55.0f, 15.0f);
+
 public:
 
 	/** Constructor */
-	AColonialMercenariesCharacter();	
+	AColonialMercenariesCharacter();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	bool IsAiming() const { return bIsAiming; }
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	UCMPrototypeWeaponComponent* GetPrototypeWeapon() const { return PrototypeWeapon; }
 
 protected:
+
+	virtual void BeginPlay() override;
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -66,6 +97,25 @@ protected:
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
+
+	void Fire();
+	void BeginAim();
+	void EndAim();
+	void SetAiming(bool bNewAiming);
+	void UpdateAimingPresentation();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetAiming(bool bNewAiming);
+
+	UFUNCTION()
+	void OnRep_Aiming();
+
+	UPROPERTY(ReplicatedUsing=OnRep_Aiming, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Combat", meta=(AllowPrivateAccess="true"))
+	bool bIsAiming = false;
+
+	float NormalCameraArmLength = 400.0f;
+	FVector NormalCameraSocketOffset = FVector::ZeroVector;
 
 public:
 
