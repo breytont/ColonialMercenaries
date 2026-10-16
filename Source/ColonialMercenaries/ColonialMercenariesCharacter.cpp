@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ColonialMercenariesCharacter.h"
+#include "Combat/CMPrototypeWeaponComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -14,6 +16,8 @@
 
 AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 {
+	bReplicates = true;
+	PrototypeWeapon = CreateDefaultSubobject<UCMPrototypeWeaponComponent>(TEXT("PrototypeWeapon"));
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -50,6 +54,23 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
+void AColonialMercenariesCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Respect camera defaults configured in BP_ThirdPersonCharacter.
+	NormalCameraArmLength = CameraBoom->TargetArmLength;
+	NormalCameraSocketOffset = CameraBoom->SocketOffset;
+	UpdateAimingPresentation();
+}
+
+void AColonialMercenariesCharacter::GetLifetimeReplicatedProps(
+	TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AColonialMercenariesCharacter, bIsAiming);
+}
+
 void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	// Set up action bindings
@@ -65,6 +86,23 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AColonialMercenariesCharacter::Look);
+
+		// These actions are assigned in BP_ThirdPersonCharacter and mapped
+		// through IMC_Default. Existing move, look and jump remain unchanged.
+		if (FireAction)
+		{
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started,
+				this, &AColonialMercenariesCharacter::Fire);
+		}
+		if (AimAction)
+		{
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Started,
+				this, &AColonialMercenariesCharacter::BeginAim);
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed,
+				this, &AColonialMercenariesCharacter::EndAim);
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled,
+				this, &AColonialMercenariesCharacter::EndAim);
+		}
 	}
 	else
 	{
@@ -130,4 +168,72 @@ void AColonialMercenariesCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void AColonialMercenariesCharacter::Fire()
+{
+	if (IsLocallyControlled() && IsValid(PrototypeWeapon))
+	{
+		PrototypeWeapon->RequestFire();
+	}
+}
+
+void AColonialMercenariesCharacter::BeginAim()
+{
+	if (IsLocallyControlled())
+	{
+		SetAiming(true);
+	}
+}
+
+void AColonialMercenariesCharacter::EndAim()
+{
+	if (IsLocallyControlled())
+	{
+		SetAiming(false);
+	}
+}
+
+void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
+{
+	if (bIsAiming == bNewAiming)
+	{
+		return;
+	}
+
+	// Predict aiming presentation instantly for the local player.
+	bIsAiming = bNewAiming;
+	UpdateAimingPresentation();
+
+	if (!HasAuthority())
+	{
+		ServerSetAiming(bNewAiming);
+	}
+}
+
+void AColonialMercenariesCharacter::ServerSetAiming_Implementation(bool bNewAiming)
+{
+	bIsAiming = bNewAiming;
+	UpdateAimingPresentation();
+}
+
+void AColonialMercenariesCharacter::OnRep_Aiming()
+{
+	UpdateAimingPresentation();
+}
+
+void AColonialMercenariesCharacter::UpdateAimingPresentation()
+{
+	if (!IsValid(CameraBoom))
+	{
+		return;
+	}
+
+	bUseControllerRotationYaw = bIsAiming;
+	GetCharacterMovement()->bOrientRotationToMovement = !bIsAiming;
+
+	CameraBoom->TargetArmLength = bIsAiming
+		? FMath::Max(AimedCameraArmLength, 100.0f) : NormalCameraArmLength;
+	CameraBoom->SocketOffset = bIsAiming
+		? AimedCameraSocketOffset : NormalCameraSocketOffset;
 }
