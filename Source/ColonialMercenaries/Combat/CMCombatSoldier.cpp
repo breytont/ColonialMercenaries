@@ -114,9 +114,18 @@ bool ACMCombatSoldier::HasLineOfFire(const ACMCombatSoldier* Target) const
 	FHitResult Hit;
 	// A soldier can fire only if the first thing the ray strikes is its
 	// intended enemy, not a wall or another soldier.
-	return GetWorld()->LineTraceSingleByChannel(
-		Hit, Start, End, ECC_Visibility, Params)
-		&& Hit.GetActor() == Target;
+	const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+		Hit, Start, End, ECC_Visibility, Params);
+	const bool bClear = bBlocked && Hit.GetActor() == Target;
+
+	if (bDrawLineOfSight)
+	{
+		DrawDebugLine(GetWorld(), Start, bBlocked ? Hit.ImpactPoint : End,
+			bClear ? FColor::Green : FColor::Red, false,
+			FMath::Max(DecisionInterval, 0.1f), 0, 1.0f);
+	}
+
+	return bClear;
 }
 
 ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
