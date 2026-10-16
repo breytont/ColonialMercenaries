@@ -1,5 +1,7 @@
 // Copyright (c) Colonial Mercenaries contributors. All rights reserved.
 #include "Combat/CMPrototypeWeaponComponent.h"
+#include "ColonialMercenariesCharacter.h"
+#include "Components/SceneComponent.h"
 
 #include "Combat/CMHealthComponent.h"
 #include "Camera/CameraComponent.h"
@@ -80,8 +82,26 @@ void UCMPrototypeWeaponComponent::FireOnAuthority()
 
 	// A second trace from a plausible weapon location prevents third-person
 	// cameras from granting shots through intervening walls or solid cover.
-	const FVector MuzzleOrigin = Character->GetActorLocation()
+	FVector MuzzleOrigin = Character->GetActorLocation()
 		+ FRotator(0.0f, ViewRotation.Yaw, 0.0f).RotateVector(MuzzleOffset);
+
+	// Player characters have a muzzle transform attached to the hand-held
+	// prototype rifle. Reuse it for hit collision and tracers so the gun
+	// doesn't appear to fire out of the character's chest.
+	if (bUseVisualRifleMuzzle)
+	{
+		if (const AColonialMercenariesCharacter* PlayerCharacter =
+			Cast<AColonialMercenariesCharacter>(Character))
+		{
+			if (const USceneComponent* Muzzle = PlayerCharacter->GetPrototypeRifleMuzzle())
+			{
+				if (Muzzle->IsRegistered())
+				{
+					MuzzleOrigin = Muzzle->GetComponentLocation();
+				}
+			}
+		}
+	}
 	const FVector ShotDirection = (DesiredImpact - MuzzleOrigin).GetSafeNormal();
 	if (ShotDirection.IsNearlyZero())
 	{
