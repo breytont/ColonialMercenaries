@@ -41,6 +41,9 @@ protected:
 	/** Find the nearest living enemy within detection range. */
 	ACMCombatSoldier* FindClosestHostile() const;
 
+	/** True when a Visibility trace hits the intended target first. */
+	bool HasLineOfFire(const ACMCombatSoldier* Target) const;
+
 	/** Fire a prototype hitscan shot; damage is always decided by the server. */
 	void FireAt(ACMCombatSoldier* Target);
 
@@ -78,6 +81,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="100.0", UIMin="100.0"))
 	float WeaponRange = 950.0f;
 
+	/** How close we navigate toward an enemy when terrain or another actor blocks fire. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning",
+		meta=(ClampMin="50.0", UIMin="50.0"))
+	float BlockedApproachDistance = 175.0f;
+
+	/** Delay between failed/completed path requests; prevents repeated MoveTo requests. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning",
+		meta=(ClampMin="0.1", UIMin="0.1"))
+	float PathRetryInterval = 1.5f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="0.0", UIMin="0.0"))
 	float ShotDamage = 20.0f;
 
@@ -99,6 +112,8 @@ private:
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACMCombatSoldier> CurrentTarget;
 	float NextShotTime = 0.0f;
+	float NextMoveRequestTime = 0.0f;
+	bool bLastMoveWasBlockedApproach = false;
 	bool bReportedMissingController = false;
 	bool bReportedMoveFailure = false;
 };
