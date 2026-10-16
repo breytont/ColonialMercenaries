@@ -12,7 +12,7 @@ class UCameraComponent;
 class UInputAction;
 class UCMPrototypeWeaponComponent;
 struct FInputActionValue;
-struct FLifetimeProperty;
+class FLifetimeProperty;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
