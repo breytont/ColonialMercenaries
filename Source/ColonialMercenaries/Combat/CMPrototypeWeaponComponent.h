@@ -46,6 +46,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
 	FVector MuzzleOffset = FVector(35.0f, 20.0f, 55.0f);
 
+	/** Use the player character's visible rifle muzzle for shot origin.
+	 *  Disable to fall back to the fixed Muzzle Offset for troubleshooting.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
+	bool bUseVisualRifleMuzzle = true;
+
 	/** Display temporary cyan tracer lines. Weapon VFX come later. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Debug")
 	bool bDrawShotTracers = true;
