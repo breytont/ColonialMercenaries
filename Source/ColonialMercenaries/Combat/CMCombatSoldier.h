@@ -91,6 +91,10 @@ protected:
 		meta=(ClampMin="0.1", UIMin="0.1"))
 	float PathRetryInterval = 1.5f;
 
+	/** Optional red/green visibility-ray visualization for local prototype testing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Debug")
+	bool bDrawLineOfSight = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="0.0", UIMin="0.0"))
 	float ShotDamage = 20.0f;
 
