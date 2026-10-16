@@ -3,6 +3,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/NetSerialization.h"
 #include "CMPrototypeWeaponComponent.generated.h"
 
 /**
