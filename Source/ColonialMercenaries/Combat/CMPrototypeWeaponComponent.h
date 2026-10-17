@@ -52,6 +52,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
 	bool bUseVisualRifleMuzzle = true;
 
+	/** When using the visual muzzle, fire along its +X / Forward axis.
+	 * This is physical barrel-direction aiming, not camera auto-correction.
+	 * Disable to use the earlier camera-assisted muzzle-to-target trace.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
+	bool bFireAlongMuzzleForward = true;
+
 	/** Display temporary cyan tracer lines. Weapon VFX come later. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Debug")
 	bool bDrawShotTracers = true;

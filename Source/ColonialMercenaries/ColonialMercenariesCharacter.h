@@ -62,6 +62,10 @@ class AColonialMercenariesCharacter : public ACharacter
 	/** Visual anchor for later aligning gunshot VFX and actual projectiles. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<USceneComponent> PrototypeRifleMuzzle;
+
+	/** Left-hand grip marker attached to the rifle, independent of mannequin animation. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<USceneComponent> PrototypeRifleSupportGrip;
 	
 protected:
 
@@ -116,6 +120,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	USceneComponent* GetPrototypeRifleMuzzle() const { return PrototypeRifleMuzzle; }
+
+	/** IK effector position relative to the mannequin hand_r bone.
+	 * The support grip rides with the weapon; IK is solved against hand_r
+	 * within the AnimGraph rather than tracking a previous-frame world pose.
+	 */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	FVector GetPrototypeRifleSupportGripInRightHandSpace() const;
 
 protected:
 
