@@ -34,8 +34,14 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		CMIsInAir = false;
 		CMAimPitch = 0.0f;
 		CMAimYaw = 0.0f;
+		CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
 		return;
 	}
+
+	// Offset stays fixed relative to hand_r, even when animation rotates
+	// the arm. The Two Bone IK node solves the left arm within this pose.
+	CMLeftHandGripInRightHandSpace =
+		Character->GetPrototypeRifleSupportGripInRightHandSpace();
 
 	const FVector Velocity = Character->GetVelocity();
 	const FVector PlanarVelocity(Velocity.X, Velocity.Y, 0.0f);
