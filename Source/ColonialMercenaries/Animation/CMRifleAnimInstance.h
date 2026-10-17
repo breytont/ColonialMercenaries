@@ -49,6 +49,13 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	float CMAimYaw = 0.0f;
 
+	/** Two Bone IK effector location for hand_l in hand_r bone space.
+	 * Feed into an IK node with Effector Location Space = Bone Space and
+	 * Effector Target = hand_r, after the rifle aiming Layered Blend.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
+	FVector CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
+
 	/** Higher rates transition to rifle-ready stance more quickly. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation|Tuning",
 		meta=(ClampMin="0.1", UIMin="0.1"))
