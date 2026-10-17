@@ -116,6 +116,61 @@ asset's actual axis configuration and samples should be verified in the
 Unreal Editor before deciding which nodes/values to connect. Muzzle direction
 and hit resolution remain server-authoritative; two-player test still pending.
 
+## Rifle support-hand IK (work in progress)
+
+The hand_r-attached weapon now includes an editable scene component named
+`PrototypeRifleSupportGrip` under `PrototypeRifleRoot`. Its default
+position is roughly beneath the rifle fore-end (X=29, Y=0, Z=-8,
+in rifle-root local coordinates).
+
+`UCMRifleAnimInstance` exposes `CMLeftHandGripInRightHandSpace`, a
+**bone-space** vector computed from the rifle/root relative transforms.
+Because it is expressed relative to `hand_r`, the IK effector follows the
+weapon's right-hand animation directly, with no last-frame world-position
+dependence. No new actor Tick or replication messages are needed.
+
+### Animation Blueprint setup (after a successful C++ build)
+
+In `ABP_CM_Rifle`'s AnimGraph, keep the existing
+`AO_Rifle -> Layered Blend per Bone` connections. Insert arm IK **after**
+`Layered Blend per Bone` and **before** the existing foot `Control Rig`:
+
+1. Place `Local To Component` and `Component To Local` nodes between
+   Layered Blend and Control Rig; insert `Two Bone IK` between these
+   conversion nodes. The flow is:
+   `Layered Blend -> Local To Component -> Two Bone IK ->
+   Component To Local -> Control Rig -> Output Pose`.
+2. Set the `Two Bone IK` node's **IK Bone** to `hand_l`.
+3. Set **Effector Location Space** to **Bone Space** and its
+   **Effector Space Bone Name / Effector Target** to `hand_r`.
+   (The exact property label can vary with the details UI.)
+4. Drag **Get CMLeftHandGripInRightHandSpace** into the AnimGraph;
+   connect it to `Effector Location` on the IK node.
+5. Connect `CMRifleAimAlpha` to the IK node's `Alpha`.
+   This leaves the existing unarmed pose alone when RMB is released.
+6. Compile. Test with RMB aiming horizontally, looking high and low,
+   jogging and jumping. With `PrototypeRifleSupportGrip` selected on
+   `BP_ThirdPersonCharacter`, adjust its local position to bring the left
+   palm to the foregrip without moving the rifle or muzzle.
+7. If the elbow folds the wrong way, configure the IK node's **Joint
+   Target Location** and space, or adjust the grip point. Do not use a
+   new rotated muzzle as an alignment workaround.
+
+**Known limitations:** A two-bone IK pass primarily fixes hand location.
+The left palm's precise orientation and finger gripping need a
+rotation-aware hand IK / Control Rig pass later. Foot Control Rig may
+need ordering adjustments if it modifies arm transforms unexpectedly.
+
+### Validate before merge
+
+- Left hand tracks the gun as the right hand changes pitch.
+- No drifting to the right during up/down aiming.
+- Normal locomotion and falling still work when the rifle is lowered.
+- The muzzle is not modified by the IK node; physical muzzle-forward
+  hitscan remains intact.
+- Save and push both `ABP_CM_Rifle` and `BP_ThirdPersonCharacter`
+  (new grip target offsets) after local testing.
+
 ## Explicitly deferred
 
 Full-body rifle jog/walk blend space, dynamic aim offset up/down,
