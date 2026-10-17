@@ -84,12 +84,44 @@ final pose; do not delete any state machines or Transition Rules.
 - [ ] Commit/push the **new** `ABP_CM_Rifle` and changed
       `BP_ThirdPersonCharacter` .uassets, excluding VS generated files.
 
+## Current preview + muzzle-direction test
+
+Once the rifle's attachment has been positioned against
+`MF_Rifle_Idle_ADS` in the character Blueprint, the **Use Animation Asset**
+setting must be reverted. On `BP_ThirdPersonCharacter` → **Mesh**:
+
+- **Animation Mode:** `Use Animation Blueprint`
+- **Anim Class:** `ABP_CM_Rifle`
+
+Compile and save. The one-off animation sequence was only for preview:
+leaving it assigned prevents the normal locomotion/aim blending from playing.
+
+In `BP_ThirdPersonCharacter` → **PrototypeWeapon** → Tuning:
+
+- Enable **Use Visual Rifle Muzzle** to start each shot at the rifle tip.
+- Enable **Fire Along Muzzle Forward** to trace physically along the rifle's
+  local +X barrel direction, rather than auto-converging toward the camera.
+- For troubleshooting, disable **Fire Along Muzzle Forward** to use the old
+  camera-assisted shot direction. Disabling **Use Visual Rifle Muzzle**
+  entirely returns to the prior character-relative muzzle position.
+
+The forward-shot mode deliberately hits the ground, walls, or nearby objects
+when the gun is physically pointed at them. While rifle pitch/aim-offset
+animation is not hooked up, shots will not follow camera look up/down;
+this is an expected, temporary limitation, not an aiming correction.
+
+The aim-offset asset `AO_Rifle` and variable `CMAimPitch` already exist.
+The next AnimGraph integration will animate vertical weapon pitch. The
+asset's actual axis configuration and samples should be verified in the
+Unreal Editor before deciding which nodes/values to connect. Muzzle direction
+and hit resolution remain server-authoritative; two-player test still pending.
+
 ## Explicitly deferred
 
 Full-body rifle jog/walk blend space, dynamic aim offset up/down,
 two-hand IK attachment, fire/recoil montage, reloads, hit flinch, and
-exact muzzle direction under all animations.
+full pitch-adjusted muzzle direction under all animations.
 
-Physical muzzle firing remains the long-term design. The existing
-`Use Visual Rifle Muzzle` toggle may remain disabled on the prototype
-during animation alignment; we will enable it after validation.
+Straight physical muzzle firing is now available as an optional prototype
+mode; validate its transform in-editor before merging. This mode may need
+pitch adjustment in the animation and server mesh animation evaluation.
