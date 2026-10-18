@@ -4,6 +4,7 @@
 #include "AIController.h"
 #include "Combat/CMFactionComponent.h"
 #include "Combat/CMHealthComponent.h"
+#include "ColonialMercenariesCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -97,7 +98,7 @@ void ACMCombatSoldier::BeginPlay()
 	}
 }
 
-bool ACMCombatSoldier::HasLineOfFire(const ACMCombatSoldier* Target) const
+bool ACMCombatSoldier::HasLineOfFire(const ACharacter* Target) const
 {
 	if (!IsValid(Target) || !GetWorld())
 	{
@@ -106,7 +107,7 @@ bool ACMCombatSoldier::HasLineOfFire(const ACMCombatSoldier* Target) const
 
 	const FVector Start = GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
 	const FVector End = Target->GetActorLocation()
-		+ FVector(0.0f, 0.0f, Target->AimHeight);
+		+ FVector(0.0f, 0.0f, AimHeight);
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
@@ -128,7 +129,7 @@ bool ACMCombatSoldier::HasLineOfFire(const ACMCombatSoldier* Target) const
 	return bClear;
 }
 
-ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
+ACharacter* ACMCombatSoldier::FindClosestHostile() const
 {
 	UWorld* World = GetWorld();
 	if (!World || !FactionComponent || !FactionComponent->GetFactionId().IsValid())
@@ -147,17 +148,27 @@ ACMCombatSoldier* ACMCombatSoldier::FindClosestHostile() const
 		Overlaps, GetActorLocation(), FQuat::Identity, ObjectTypes,
 		FCollisionShape::MakeSphere(DetectionRange), QueryParams);
 
-	ACMCombatSoldier* ClosestVisible = nullptr;
-	ACMCombatSoldier* ClosestObstructed = nullptr;
+	ACharacter* ClosestVisible = nullptr;
+	ACharacter* ClosestObstructed = nullptr;
 	float VisibleDistanceSquared = FMath::Square(DetectionRange);
 	float ObstructedDistanceSquared = FMath::Square(DetectionRange);
 
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
-		ACMCombatSoldier* Candidate = Cast<ACMCombatSoldier>(Overlap.GetActor());
-		if (!IsValid(Candidate) || Candidate == this
-			|| !Candidate->HealthComponent || Candidate->HealthComponent->IsDead()
-			|| !FactionComponent->IsHostileTo(Candidate->FactionComponent))
+		ACharacter* Candidate = Cast<ACharacter>(Overlap.GetActor());
+		if (!IsValid(Candidate) || Candidate == this)
+		{
+			continue;
+		}
+
+		// Soldiers and players share the same health and faction interfaces.
+		// An unassigned player faction remains neutral. A prototype player
+		// can be assigned Faction.Prototype.Blue in BP_ThirdPersonCharacter
+		// to make red soldiers engage them (and vice versa).
+		UCMHealthComponent* CandidateHealth = Candidate->FindComponentByClass<UCMHealthComponent>();
+		UCMFactionComponent* CandidateFaction = Candidate->FindComponentByClass<UCMFactionComponent>();
+		if (!IsValid(CandidateHealth) || CandidateHealth->IsDead()
+			|| !FactionComponent->IsHostileTo(CandidateFaction))
 		{
 			continue;
 		}
@@ -205,7 +216,7 @@ void ACMCombatSoldier::UpdateCombat()
 			*GetName());
 	}
 
-	ACMCombatSoldier* Target = FindClosestHostile();
+	ACharacter* Target = FindClosestHostile();
 	if (!IsValid(Target))
 	{
 		CurrentTarget.Reset();
@@ -275,15 +286,21 @@ void ACMCombatSoldier::UpdateCombat()
 	CurrentTarget = Target;
 }
 
-void ACMCombatSoldier::FireAt(ACMCombatSoldier* Target)
+void ACMCombatSoldier::FireAt(ACharacter* Target)
 {
-	if (!HasAuthority() || !IsValid(Target) || Target->HealthComponent->IsDead())
+	if (!HasAuthority() || !IsValid(Target))
+	{
+		return;
+	}
+
+	const UCMHealthComponent* TargetHealth = Target->FindComponentByClass<UCMHealthComponent>();
+	if (!IsValid(TargetHealth) || TargetHealth->IsDead())
 	{
 		return;
 	}
 
 	const FVector Start = GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
-	const FVector End = Target->GetActorLocation() + FVector(0.0f, 0.0f, Target->AimHeight);
+	const FVector End = Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
 
 	FCollisionQueryParams TraceParams;
 	TraceParams.AddIgnoredActor(this);
