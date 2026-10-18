@@ -194,6 +194,28 @@ void UCMPrototypeWeaponComponent::MulticastShotFeedback_Implementation(
 			this, ImpactSound, FVector(End), 1.0f, 1.0f, 0.0f, ShotAttenuation);
 	}
 
+	// Cheap local-client near miss: find closest point along the *resolved*
+	// hitscan segment to the listener. No actor overlap or per-frame scanning.
+	// Every machine evaluates only its own local player, so a distant whizz
+	// is never played globally for all four co-op players.
+	if (NearMissSound)
+	{
+		const APawn* LocalPawn = UGameplayStatics::GetPlayerPawn(this, 0);
+		if (IsValid(LocalPawn) && LocalPawn != GetOwner())
+		{
+			const FVector EarPosition = LocalPawn->GetPawnViewLocation();
+			const FVector ClosestPoint = FMath::ClosestPointOnSegment(
+				EarPosition, FVector(Start), FVector(End));
+			const float Distance = FVector::Dist(EarPosition, ClosestPoint);
+			if (Distance >= FMath::Max(0.0f, NearMissMinDistance)
+				&& Distance <= FMath::Max(NearMissMinDistance, NearMissMaxDistance))
+			{
+				UGameplayStatics::PlaySoundAtLocation(
+					this, NearMissSound, ClosestPoint, 1.0f, 1.0f, 0.0f, ShotAttenuation);
+			}
+		}
+	}
+
 	OnShotVisuals.Broadcast(FVector(Start), FVector(End), bBlockingHit);
 }
 
