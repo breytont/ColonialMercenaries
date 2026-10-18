@@ -525,7 +525,8 @@ void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
 
 void AColonialMercenariesCharacter::ServerSetAiming_Implementation(bool bNewAiming)
 {
-	bIsAiming = bNewAiming;
+	// Ignore stale aim RPCs from a player who has already gone down.
+	bIsAiming = bNewAiming && !IsIncapacitated();
 	UpdateAimingPresentation();
 }
 
