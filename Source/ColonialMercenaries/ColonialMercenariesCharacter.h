@@ -11,6 +11,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 class UCMPrototypeWeaponComponent;
+class UCMPrototypeReticleWidget;
 class USceneComponent;
 class UStaticMeshComponent;
 struct FInputActionValue;
@@ -105,6 +106,13 @@ protected:
 		meta=(ClampMin="0.0", UIMin="0.0"))
 	float AimCameraBlendDuration = 0.22f;
 
+	/** Local-only physical muzzle reticle; replaceable with a UMG Blueprint. */
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Aiming|Reticle")
+	TSubclassOf<UCMPrototypeReticleWidget> ReticleWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMPrototypeReticleWidget> ActiveReticleWidget;
+
 public:
 
 	/** Constructor */
@@ -131,6 +139,9 @@ public:
 protected:
 
 	virtual void BeginPlay() override;
+	virtual void PawnClientRestart() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	void EnsureLocalReticleWidget();
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
