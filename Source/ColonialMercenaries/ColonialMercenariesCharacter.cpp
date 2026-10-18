@@ -93,6 +93,13 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 	PrototypeRifleMuzzle->SetupAttachment(PrototypeRifleRoot);
 	PrototypeRifleMuzzle->SetRelativeLocation(FVector(70.0f, 0.0f, 0.0f));
 
+	// Left-hand support point travels with the gun, including pitch aiming.
+	// In the animation graph, a Two Bone IK node can resolve hand_l toward
+	// this point in hand_r bone space without one-frame world-space lag.
+	PrototypeRifleSupportGrip = CreateDefaultSubobject<USceneComponent>(TEXT("PrototypeRifleSupportGrip"));
+	PrototypeRifleSupportGrip->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleSupportGrip->SetRelativeLocation(FVector(29.0f, 0.0f, -8.0f));
+
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeShape(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderShape(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 
@@ -114,6 +121,19 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+FVector AColonialMercenariesCharacter::GetPrototypeRifleSupportGripInRightHandSpace() const
+{
+	if (!IsValid(PrototypeRifleRoot) || !IsValid(PrototypeRifleSupportGrip))
+	{
+		return FVector::ZeroVector;
+	}
+
+	// RifleRoot attaches directly to the skeletal hand_r socket. Its local
+	// transform maps rifle coordinates into hand_r bone coordinates.
+	return PrototypeRifleRoot->GetRelativeTransform().TransformPosition(
+		PrototypeRifleSupportGrip->GetRelativeLocation());
 }
 
 void AColonialMercenariesCharacter::BeginPlay()
