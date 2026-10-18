@@ -128,8 +128,8 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerRequestFire();
 
-	UFUNCTION(NetMulticast, Unreliable)
 	/** All audible/visible feedback is cosmetic. Shot validation stays on server. */
+	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastShotFeedback(
 		FVector_NetQuantize Start, FVector_NetQuantize End, bool bBlockingHit);
 
