@@ -138,6 +138,16 @@ void UCMPrototypeWeaponComponent::FireOnAuthority()
 		return;
 	}
 
+	// Client-side input is also guarded, but the authority must reject
+	// delayed/forged RPCs from incapacitated players.
+	if (const UCMHealthComponent* Health = Character->FindComponentByClass<UCMHealthComponent>())
+	{
+		if (Health->IsDead())
+		{
+			return;
+		}
+	}
+
 	const float Now = World->GetTimeSeconds();
 	if (Now < NextAllowedShotTime)
 	{
