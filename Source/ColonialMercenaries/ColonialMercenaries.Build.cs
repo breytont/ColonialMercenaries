@@ -22,7 +22,8 @@ public class ColonialMercenaries : ModuleRules
 			"Slate"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// Explicit SlateCore dependency for the native default-font reticle.
+		PrivateDependencyModuleNames.AddRange(new string[] { "SlateCore" });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"ColonialMercenaries",

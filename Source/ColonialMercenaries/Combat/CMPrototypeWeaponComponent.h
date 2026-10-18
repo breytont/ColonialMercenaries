@@ -31,7 +31,18 @@ public:
 
 	/** Call when the owning player presses Fire. The server decides the hit. */
 	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Weapon")
+
 	void RequestFire();
+
+	/** Cosmetic prediction for the owning player's reticle. Uses the same
+	 * physical muzzle origin, barrel direction, and Visibility trace as
+	 * server-authoritative FireOnAuthority, but does not apply damage.
+	 *
+	 * This is not an authoritative hit guarantee: clients can differ from
+	 * the server due to replication delay and animation pose timing.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category="Colonial Mercenaries|Weapon|Aiming")
+	bool GetPredictedShot(FVector& OutStart, FVector& OutEnd, bool& bBlockingHit) const;
 
 	/** Cosmetic event dispatched once per approved shot on relevant clients.
 	 * Blueprints can attach Niagara muzzle flashes, decals, and hit indicators.
@@ -141,4 +152,7 @@ private:
 	float NextAllowedShotTime = 0.0f;
 
 	void FireOnAuthority();
+
+	/** Shared non-mutating trace used by server fire and local prediction. */
+	bool TraceShot(FVector& OutStart, FVector& OutEnd, FHitResult& OutHit) const;
 };

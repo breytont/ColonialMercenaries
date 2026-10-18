@@ -2,6 +2,9 @@
 
 #include "ColonialMercenariesCharacter.h"
 #include "Combat/CMPrototypeWeaponComponent.h"
+#include "UI/CMPrototypeReticleWidget.h"
+#include "Blueprint/UserWidget.h"
+#include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
@@ -23,6 +26,7 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 {
 	bReplicates = true;
 	PrototypeWeapon = CreateDefaultSubobject<UCMPrototypeWeaponComponent>(TEXT("PrototypeWeapon"));
+	ReticleWidgetClass = UCMPrototypeReticleWidget::StaticClass();
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -146,6 +150,49 @@ void AColonialMercenariesCharacter::BeginPlay()
 	UpdateAimingPresentation();
 }
 
+void AColonialMercenariesCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+	EnsureLocalReticleWidget();
+}
+
+void AColonialMercenariesCharacter::EnsureLocalReticleWidget()
+{
+	// Each owning player's UI is entirely local. No server HUD actor,
+	// replicated widget state, or GameMode/Level Blueprint involvement.
+	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	if (!IsValid(PlayerController) || !PlayerController->IsLocalController()
+		|| !IsLocallyControlled() || !ReticleWidgetClass)
+	{
+		return;
+	}
+
+	if (!IsValid(ActiveReticleWidget))
+	{
+		ActiveReticleWidget = CreateWidget<UCMPrototypeReticleWidget>(
+			PlayerController, ReticleWidgetClass);
+	}
+	if (IsValid(ActiveReticleWidget))
+	{
+		ActiveReticleWidget->SetWeaponComponent(PrototypeWeapon);
+		if (!ActiveReticleWidget->IsInViewport())
+		{
+			ActiveReticleWidget->AddToPlayerScreen(10);
+		}
+	}
+}
+
+void AColonialMercenariesCharacter::EndPlay(
+	const EEndPlayReason::Type EndPlayReason)
+{
+	if (IsValid(ActiveReticleWidget))
+	{
+		ActiveReticleWidget->RemoveFromParent();
+		ActiveReticleWidget = nullptr;
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
 void AColonialMercenariesCharacter::GetLifetimeReplicatedProps(
 	TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
@@ -190,6 +237,10 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 	{
 		UE_LOG(LogColonialMercenaries, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
 	}
+
+	// Also covers local possession flows where input is initialized before
+	// the client restart callback. Guarded against duplicate UI creation.
+	EnsureLocalReticleWidget();
 }
 
 void AColonialMercenariesCharacter::Move(const FInputActionValue& Value)
