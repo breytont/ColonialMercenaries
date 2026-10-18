@@ -88,6 +88,21 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Audio")
 	TObjectPtr<USoundBase> ImpactSound;
 
+	/** Optional incoming near-miss sound heard by a local player near a
+	 * shot segment. Hitscan approximation; no ballistic travel time yet.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Audio")
+	TObjectPtr<USoundBase> NearMissSound;
+
+	/** Near miss plays only in this distance band from a listener's view. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Audio",
+		meta=(ClampMin="0.0"))
+	float NearMissMinDistance = 60.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Audio",
+		meta=(ClampMin="0.0"))
+	float NearMissMaxDistance = 230.0f;
+
 	/** Optional shared attenuation asset for falloff, spatialization and occlusion. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Audio")
 	TObjectPtr<USoundAttenuation> ShotAttenuation;
