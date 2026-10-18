@@ -44,6 +44,90 @@ void UCMPrototypeWeaponComponent::ServerRequestFire_Implementation()
 	FireOnAuthority();
 }
 
+bool UCMPrototypeWeaponComponent::TraceShot(
+	FVector& OutStart, FVector& OutEnd, FHitResult& OutHit) const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	UWorld* World = GetWorld();
+	if (!IsValid(Character) || !World || !IsValid(Character->GetController()))
+	{
+		return false;
+	}
+
+	const FRotator ViewRotation = Character->GetController()->GetControlRotation();
+	const float Range = FMath::Max(MaxRange, 100.0f);
+
+	FCollisionQueryParams TraceParams;
+	TraceParams.AddIgnoredActor(Character);
+
+	// Actual gun muzzle first, including its physical orientation when the
+	// pose is lowered, obstructed, or aiming above/below the horizon.
+	OutStart = Character->GetActorLocation()
+		+ FRotator(0.0f, ViewRotation.Yaw, 0.0f).RotateVector(MuzzleOffset);
+	FVector ShotDirection = FVector::ZeroVector;
+
+	if (bUseVisualRifleMuzzle)
+	{
+		if (const AColonialMercenariesCharacter* PlayerCharacter =
+			Cast<AColonialMercenariesCharacter>(Character))
+		{
+			if (const USceneComponent* Muzzle = PlayerCharacter->GetPrototypeRifleMuzzle())
+			{
+				if (Muzzle->IsRegistered())
+				{
+					OutStart = Muzzle->GetComponentLocation();
+					if (bFireAlongMuzzleForward)
+					{
+						ShotDirection = Muzzle->GetForwardVector().GetSafeNormal();
+					}
+				}
+			}
+		}
+	}
+
+	if (ShotDirection.IsNearlyZero())
+	{
+		// Existing optional camera-assisted direction remains available for
+		// designers, while still starting shots from the actual muzzle.
+		FVector ViewOrigin = Character->GetPawnViewLocation();
+		if (const UCameraComponent* Camera = Character->FindComponentByClass<UCameraComponent>())
+		{
+			ViewOrigin = Camera->GetComponentLocation();
+		}
+
+		FHitResult AimHit;
+		const FVector CameraEnd = ViewOrigin + ViewRotation.Vector() * Range;
+		const bool bCameraHit = World->LineTraceSingleByChannel(
+			AimHit, ViewOrigin, CameraEnd, ECC_Visibility, TraceParams);
+		const FVector DesiredImpact = bCameraHit ? AimHit.ImpactPoint : CameraEnd;
+		ShotDirection = (DesiredImpact - OutStart).GetSafeNormal();
+	}
+
+	if (ShotDirection.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FVector ShotRangeEnd = OutStart + ShotDirection * Range;
+	const bool bBlockingHit = World->LineTraceSingleByChannel(
+		OutHit, OutStart, ShotRangeEnd, ECC_Visibility, TraceParams);
+	OutEnd = bBlockingHit ? OutHit.ImpactPoint : ShotRangeEnd;
+	return true;
+}
+
+bool UCMPrototypeWeaponComponent::GetPredictedShot(
+	FVector& OutStart, FVector& OutEnd, bool& bBlockingHit) const
+{
+	FHitResult PredictedHit;
+	bBlockingHit = false;
+	if (!TraceShot(OutStart, OutEnd, PredictedHit))
+	{
+		return false;
+	}
+	bBlockingHit = PredictedHit.bBlockingHit;
+	return true;
+}
+
 void UCMPrototypeWeaponComponent::FireOnAuthority()
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
@@ -57,73 +141,18 @@ void UCMPrototypeWeaponComponent::FireOnAuthority()
 	const float Now = World->GetTimeSeconds();
 	if (Now < NextAllowedShotTime)
 	{
-		return; // Server-side fire-rate enforcement.
+		return;
 	}
 	NextAllowedShotTime = Now + FMath::Max(FireInterval, 0.05f);
 
-	const FRotator ViewRotation = Character->GetController()->GetControlRotation();
-	const float Range = FMath::Max(MaxRange, 100.0f);
-
-	FCollisionQueryParams TraceParams;
-	TraceParams.AddIgnoredActor(Character);
-
-	// A server-authoritative muzzle trace starts at the physical barrel tip
-	// whenever the character has a usable visual weapon. This is also the
-	// tracer origin, so shots can strike the floor or nearby cover naturally.
-	FVector MuzzleOrigin = Character->GetActorLocation()
-		+ FRotator(0.0f, ViewRotation.Yaw, 0.0f).RotateVector(MuzzleOffset);
-	FVector ShotDirection = FVector::ZeroVector;
-
-	if (bUseVisualRifleMuzzle)
-	{
-		if (const AColonialMercenariesCharacter* PlayerCharacter =
-			Cast<AColonialMercenariesCharacter>(Character))
-		{
-			if (const USceneComponent* Muzzle = PlayerCharacter->GetPrototypeRifleMuzzle())
-			{
-				if (Muzzle->IsRegistered())
-				{
-					MuzzleOrigin = Muzzle->GetComponentLocation();
-					if (bFireAlongMuzzleForward)
-					{
-						// Unreal scene-component forward is its local +X axis.
-						// The prototype rifle barrel and muzzle marker are built on +X.
-						ShotDirection = Muzzle->GetForwardVector().GetSafeNormal();
-					}
-				}
-			}
-		}
-	}
-
-	if (ShotDirection.IsNearlyZero())
-	{
-		// Configurable fallback: align from the muzzle toward a camera trace
-		// for prototype aiming or when no equipped muzzle component is present.
-		// This path still performs a second muzzle trace for obstruction.
-		FVector ViewOrigin = Character->GetPawnViewLocation();
-		if (const UCameraComponent* Camera = Character->FindComponentByClass<UCameraComponent>())
-		{
-			ViewOrigin = Camera->GetComponentLocation();
-		}
-
-		FHitResult AimHit;
-		const FVector CameraEnd = ViewOrigin + ViewRotation.Vector() * Range;
-		const bool bCameraHit = World->LineTraceSingleByChannel(
-			AimHit, ViewOrigin, CameraEnd, ECC_Visibility, TraceParams);
-		const FVector DesiredImpact = bCameraHit ? AimHit.ImpactPoint : CameraEnd;
-		ShotDirection = (DesiredImpact - MuzzleOrigin).GetSafeNormal();
-	}
-
-	if (ShotDirection.IsNearlyZero())
+	FVector MuzzleOrigin;
+	FVector TracerEnd;
+	FHitResult ShotHit;
+	if (!TraceShot(MuzzleOrigin, TracerEnd, ShotHit))
 	{
 		return;
 	}
-
-	FHitResult ShotHit;
-	const FVector MuzzleEnd = MuzzleOrigin + ShotDirection * Range;
-	const bool bMuzzleHit = World->LineTraceSingleByChannel(
-		ShotHit, MuzzleOrigin, MuzzleEnd, ECC_Visibility, TraceParams);
-	const FVector TracerEnd = bMuzzleHit ? ShotHit.ImpactPoint : MuzzleEnd;
+	const bool bMuzzleHit = ShotHit.bBlockingHit;
 
 	if (AActor* HitActor = ShotHit.GetActor())
 	{
