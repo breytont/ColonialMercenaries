@@ -17,45 +17,52 @@ void UCMPrototypeReticleWidget::SetWeaponComponent(
 	WeaponComponent = InWeapon;
 }
 
-void UCMPrototypeReticleWidget::NativeConstruct()
+TSharedRef<SWidget> UCMPrototypeReticleWidget::RebuildWidget()
 {
-	Super::NativeConstruct();
-
-	if (!WidgetTree)
+	// Build UMG children BEFORE Super::RebuildWidget assembles the Slate tree.
+	// Creating the root during NativeConstruct can leave a blank SNullWidget.
+	if (WidgetTree && !WidgetTree->RootWidget)
 	{
-		return;
-	}
-
-	// A fully native, replaceable placeholder needs no .uasset. Later, a
-	// Blueprint child can provide custom art without changing weapon logic.
-	UCanvasPanel* Canvas = Cast<UCanvasPanel>(WidgetTree->RootWidget);
-	if (!Canvas)
-	{
-		Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(
+		UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(
 			UCanvasPanel::StaticClass(), TEXT("WeaponReticleCanvas"));
 		WidgetTree->RootWidget = Canvas;
 	}
 
-	if (!IsValid(ReticleText))
+	if (WidgetTree && !IsValid(ReticleText))
 	{
-		ReticleText = WidgetTree->ConstructWidget<UTextBlock>(
-			UTextBlock::StaticClass(), TEXT("PhysicalMuzzleCrosshair"));
-		ReticleText->SetText(FText::FromString(TEXT("+")));
-		ReticleText->SetJustification(ETextJustify::Center);
+		if (UCanvasPanel* Canvas = Cast<UCanvasPanel>(WidgetTree->RootWidget))
+		{
+			ReticleText = WidgetTree->ConstructWidget<UTextBlock>(
+				UTextBlock::StaticClass(), TEXT("PhysicalMuzzleCrosshair"));
+			ReticleText->SetText(FText::FromString(TEXT("+")));
+			ReticleSlot = Canvas->AddChildToCanvas(ReticleText);
+		}
+	}
 
-		FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Bold", ReticleFontSize);
+	return Super::RebuildWidget();
+}
+
+void UCMPrototypeReticleWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	if (IsValid(ReticleText))
+	{
+		ReticleText->SetJustification(ETextJustify::Center);
+		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Bold", ReticleFontSize);
 		ReticleText->SetFont(Font);
 		ReticleText->SetShadowOffset(FVector2D(1.0f, 1.0f));
-		ReticleText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.95f));
-		ReticleText->SetColorAndOpacity(FSlateColor(FLinearColor(0.3f, 1.0f, 0.95f, 1.0f)));
+		ReticleText->SetShadowColorAndOpacity(
+			FLinearColor(0.0f, 0.0f, 0.0f, 0.95f));
+		ReticleText->SetColorAndOpacity(
+			FSlateColor(FLinearColor(0.3f, 1.0f, 0.95f, 1.0f)));
+	}
 
-		ReticleSlot = Canvas->AddChildToCanvas(ReticleText);
-		if (ReticleSlot)
-		{
-			ReticleSlot->SetAutoSize(true);
-			ReticleSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-			ReticleSlot->SetZOrder(10);
-		}
+	if (IsValid(ReticleSlot))
+	{
+		ReticleSlot->SetAutoSize(true);
+		ReticleSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		ReticleSlot->SetZOrder(10);
 	}
 
 	SetVisibility(ESlateVisibility::HitTestInvisible);
@@ -71,7 +78,7 @@ void UCMPrototypeReticleWidget::NativeTick(
 		return;
 	}
 
-	const APlayerController* Player = GetOwningPlayer();
+	APlayerController* Player = GetOwningPlayer();
 	const AColonialMercenariesCharacter* Character =
 		IsValid(Player) ? Cast<AColonialMercenariesCharacter>(Player->GetPawn()) : nullptr;
 
@@ -93,7 +100,7 @@ void UCMPrototypeReticleWidget::NativeTick(
 
 	FVector2D WidgetPosition;
 	if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(
-		const_cast<APlayerController*>(Player), ShotEnd, WidgetPosition, true))
+		Player, ShotEnd, WidgetPosition, true))
 	{
 		ReticleText->SetVisibility(ESlateVisibility::Hidden);
 		return;
