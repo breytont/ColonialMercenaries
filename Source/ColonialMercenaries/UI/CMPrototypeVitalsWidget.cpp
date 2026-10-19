@@ -23,12 +23,12 @@ TSharedRef<SWidget> UCMPrototypeVitalsWidget::RebuildWidget()
 		{
 			VitalsLabel = WidgetTree->ConstructWidget<UTextBlock>(
 				UTextBlock::StaticClass(), TEXT("PlayerVitalsText"));
-			UCanvasPanelSlot* Slot = Canvas->AddChildToCanvas(VitalsLabel);
-			if (Slot)
+			UCanvasPanelSlot* VitalsCanvasSlot = Canvas->AddChildToCanvas(VitalsLabel);
+			if (VitalsCanvasSlot)
 			{
-				Slot->SetPosition(FVector2D(22.0f, 22.0f));
-				Slot->SetAutoSize(true);
-				Slot->SetZOrder(20);
+				VitalsCanvasSlot->SetPosition(FVector2D(22.0f, 22.0f));
+				VitalsCanvasSlot->SetAutoSize(true);
+				VitalsCanvasSlot->SetZOrder(20);
 			}
 		}
 	}
