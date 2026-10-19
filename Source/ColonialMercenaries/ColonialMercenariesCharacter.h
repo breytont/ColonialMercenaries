@@ -11,6 +11,9 @@ class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 class UCMPrototypeWeaponComponent;
+class UCMHealthComponent;
+class UCMFactionComponent;
+class UCMPrototypeVitalsWidget;
 class UCMPrototypeReticleWidget;
 class USceneComponent;
 class UStaticMeshComponent;
@@ -39,6 +42,14 @@ class AColonialMercenariesCharacter : public ACharacter
 	/** Temporary firearm. Kept separate from input so weapons can evolve. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UCMPrototypeWeaponComponent> PrototypeWeapon;
+
+	/** Reusable replicated player health; zero means incapacitated for players. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UCMHealthComponent> HealthComponent;
+
+	/** Editable test allegiance (unassigned means neutral to prototype factions). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UCMFactionComponent> FactionComponent;
 
 	/** Editable hand_r attachment: adjust the transform in the character BP. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
@@ -94,6 +105,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
 	TObjectPtr<UInputAction> AimAction;
 
+	/** Press near a downed teammate to revive (IA_Revive, mapped to E). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
+	TObjectPtr<UInputAction> ReviveAction;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
 		meta=(ClampMin="100.0"))
 	float AimedCameraArmLength = 275.0f;
@@ -105,6 +120,25 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
 		meta=(ClampMin="0.0", UIMin="0.0"))
 	float AimCameraBlendDuration = 0.22f;
+
+	/** Downed teammates have this much time to receive a revive. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Casualties",
+		meta=(ClampMin="1.0"))
+	float BleedOutSeconds = 20.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Casualties",
+		meta=(ClampMin="1.0"))
+	float ReviveHealth = 45.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Casualties",
+		meta=(ClampMin="50.0"))
+	float ReviveRange = 230.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Casualties")
+	TSubclassOf<UCMPrototypeVitalsWidget> VitalsWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMPrototypeVitalsWidget> ActiveVitalsWidget;
 
 	/** Local-only physical muzzle reticle; replaceable with a UMG Blueprint. */
 	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Aiming|Reticle")
@@ -129,6 +163,15 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	USceneComponent* GetPrototypeRifleMuzzle() const { return PrototypeRifleMuzzle; }
 
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	UCMHealthComponent* GetHealthComponent() const { return HealthComponent; }
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	UCMFactionComponent* GetFactionComponent() const { return FactionComponent; }
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
+	bool IsIncapacitated() const;
+
 	/** IK effector position relative to the mannequin hand_r bone.
 	 * The support grip rides with the weapon; IK is solved against hand_r
 	 * within the AnimGraph rather than tracking a previous-frame world pose.
@@ -142,6 +185,7 @@ protected:
 	virtual void PawnClientRestart() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	void EnsureLocalReticleWidget();
+	void EnsureLocalVitalsWidget();
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -155,6 +199,20 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	void Fire();
+	void TryRevive();
+	void TryReviveOnAuthority();
+
+	UFUNCTION(Server, Reliable)
+	void ServerTryRevive();
+
+	UFUNCTION()
+	void HandlePlayerDowned();
+
+	UFUNCTION()
+	void HandlePlayerRevived();
+
+	void FinishBleedOut();
+
 	void BeginAim();
 	void EndAim();
 	void SetAiming(bool bNewAiming);
@@ -176,6 +234,7 @@ protected:
 	float NormalCameraArmLength = 400.0f;
 	FVector NormalCameraSocketOffset = FVector::ZeroVector;
 	FTimerHandle AimCameraBlendTimerHandle;
+	FTimerHandle BleedOutTimerHandle;
 	float AimCameraBlendStartTime = 0.0f;
 	float AimCameraBlendStartArm = 400.0f;
 	FVector AimCameraBlendStartOffset = FVector::ZeroVector;

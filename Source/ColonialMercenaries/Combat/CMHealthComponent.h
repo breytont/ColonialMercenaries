@@ -33,6 +33,12 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Health")
 	bool IsDead() const { return CurrentHealth <= 0.0f; }
 
+	/** Authority-only health recovery, including revival from zero.
+	 * Equipment and medical costs will use this later.
+	 */
+	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Health")
+	bool RestoreHealth(float HealthAfterRecovery);
+
 	/** Also broadcasts on clients when the replicated health changes. */
 	UPROPERTY(BlueprintAssignable, Category="Colonial Mercenaries|Health")
 	FCMHealthChangedSignature OnHealthChanged;
@@ -40,6 +46,10 @@ public:
 	/** Fires on the server upon lethal damage and on clients upon replication. */
 	UPROPERTY(BlueprintAssignable, Category="Colonial Mercenaries|Health")
 	FCMDiedSignature OnDied;
+
+	/** Fires when an incapacitated actor is revived on server or client. */
+	UPROPERTY(BlueprintAssignable, Category="Colonial Mercenaries|Health")
+	FCMDiedSignature OnRevived;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

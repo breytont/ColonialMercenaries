@@ -2,6 +2,12 @@
 
 #include "ColonialMercenariesCharacter.h"
 #include "Combat/CMPrototypeWeaponComponent.h"
+#include "Combat/CMHealthComponent.h"
+#include "Combat/CMFactionComponent.h"
+#include "UI/CMPrototypeVitalsWidget.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/PlayerController.h"
+#include "Engine/World.h"
 #include "UI/CMPrototypeReticleWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "GameFramework/PlayerController.h"
@@ -26,9 +32,15 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 {
 	bReplicates = true;
 	PrototypeWeapon = CreateDefaultSubobject<UCMPrototypeWeaponComponent>(TEXT("PrototypeWeapon"));
+	HealthComponent = CreateDefaultSubobject<UCMHealthComponent>(TEXT("Health"));
+	FactionComponent = CreateDefaultSubobject<UCMFactionComponent>(TEXT("Faction"));
+	VitalsWidgetClass = UCMPrototypeVitalsWidget::StaticClass();
+	SetCanBeDamaged(true);
 	ReticleWidgetClass = UCMPrototypeReticleWidget::StaticClass();
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
+	// Player capsules must be struck by soldiers' Visibility hitscan.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 		
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
@@ -148,12 +160,18 @@ void AColonialMercenariesCharacter::BeginPlay()
 	NormalCameraArmLength = CameraBoom->TargetArmLength;
 	NormalCameraSocketOffset = CameraBoom->SocketOffset;
 	UpdateAimingPresentation();
+	if (IsValid(HealthComponent))
+	{
+		HealthComponent->OnDied.AddDynamic(this, &AColonialMercenariesCharacter::HandlePlayerDowned);
+		HealthComponent->OnRevived.AddDynamic(this, &AColonialMercenariesCharacter::HandlePlayerRevived);
+	}
 }
 
 void AColonialMercenariesCharacter::PawnClientRestart()
 {
 	Super::PawnClientRestart();
 	EnsureLocalReticleWidget();
+	EnsureLocalVitalsWidget();
 }
 
 void AColonialMercenariesCharacter::EnsureLocalReticleWidget()
@@ -182,13 +200,42 @@ void AColonialMercenariesCharacter::EnsureLocalReticleWidget()
 	}
 }
 
+void AColonialMercenariesCharacter::EnsureLocalVitalsWidget()
+{
+	APlayerController* LocalPlayer = Cast<APlayerController>(GetController());
+	if (!IsValid(LocalPlayer) || !LocalPlayer->IsLocalController()
+		|| !IsLocallyControlled() || !IsValid(HealthComponent) || !VitalsWidgetClass)
+	{
+		return;
+	}
+
+	if (!IsValid(ActiveVitalsWidget))
+	{
+		ActiveVitalsWidget = CreateWidget<UCMPrototypeVitalsWidget>(LocalPlayer, VitalsWidgetClass);
+	}
+	if (IsValid(ActiveVitalsWidget))
+	{
+		ActiveVitalsWidget->SetTrackedHealth(HealthComponent);
+		if (!ActiveVitalsWidget->IsInViewport())
+		{
+			ActiveVitalsWidget->AddToPlayerScreen(11);
+		}
+	}
+}
+
 void AColonialMercenariesCharacter::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
+	GetWorldTimerManager().ClearTimer(BleedOutTimerHandle);
 	if (IsValid(ActiveReticleWidget))
 	{
 		ActiveReticleWidget->RemoveFromParent();
 		ActiveReticleWidget = nullptr;
+	}
+	if (IsValid(ActiveVitalsWidget))
+	{
+		ActiveVitalsWidget->RemoveFromParent();
+		ActiveVitalsWidget = nullptr;
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -223,6 +270,11 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started,
 				this, &AColonialMercenariesCharacter::Fire);
 		}
+		if (ReviveAction)
+		{
+			EnhancedInputComponent->BindAction(ReviveAction, ETriggerEvent::Started,
+				this, &AColonialMercenariesCharacter::TryRevive);
+		}
 		if (AimAction)
 		{
 			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Started,
@@ -241,6 +293,7 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 	// Also covers local possession flows where input is initialized before
 	// the client restart callback. Guarded against duplicate UI creation.
 	EnsureLocalReticleWidget();
+	EnsureLocalVitalsWidget();
 }
 
 void AColonialMercenariesCharacter::Move(const FInputActionValue& Value)
@@ -305,15 +358,141 @@ void AColonialMercenariesCharacter::DoJumpEnd()
 
 void AColonialMercenariesCharacter::Fire()
 {
-	if (IsLocallyControlled() && IsValid(PrototypeWeapon))
+	if (IsLocallyControlled() && !IsIncapacitated() && IsValid(PrototypeWeapon))
 	{
 		PrototypeWeapon->RequestFire();
 	}
 }
 
+bool AColonialMercenariesCharacter::IsIncapacitated() const
+{
+	return IsValid(HealthComponent) && HealthComponent->IsDead();
+}
+
+void AColonialMercenariesCharacter::HandlePlayerDowned()
+{
+	// Leave the pawn in place for a teammate's revive. Do not Destroy it
+	// until the authoritative bleed-out timer elapses.
+	if (IsValid(GetCharacterMovement()))
+	{
+		GetCharacterMovement()->DisableMovement();
+	}
+	bIsAiming = false;
+	UpdateAimingPresentation();
+
+	if (HasAuthority() && GetWorld())
+	{
+		GetWorldTimerManager().SetTimer(BleedOutTimerHandle, this,
+			&AColonialMercenariesCharacter::FinishBleedOut,
+			FMath::Max(BleedOutSeconds, 1.0f), false);
+	}
+}
+
+void AColonialMercenariesCharacter::HandlePlayerRevived()
+{
+	GetWorldTimerManager().ClearTimer(BleedOutTimerHandle);
+	if (IsValid(GetCharacterMovement()))
+	{
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	}
+}
+
+void AColonialMercenariesCharacter::FinishBleedOut()
+{
+	if (!HasAuthority() || !IsIncapacitated() || !GetWorld())
+	{
+		return;
+	}
+
+	AController* PlayerController = GetController();
+	AGameModeBase* GameMode = GetWorld()->GetAuthGameMode();
+	if (IsValid(PlayerController) && IsValid(GameMode))
+	{
+		// PlayerStart is the temporary company-HQ spawn proxy until the
+		// headquarters/medical expense/equipment recovery systems exist.
+		PlayerController->UnPossess();
+		GameMode->RestartPlayer(PlayerController);
+		Destroy();
+	}
+}
+
+void AColonialMercenariesCharacter::TryRevive()
+{
+	if (!IsLocallyControlled() || IsIncapacitated())
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		TryReviveOnAuthority();
+	}
+	else
+	{
+		ServerTryRevive();
+	}
+}
+
+void AColonialMercenariesCharacter::ServerTryRevive_Implementation()
+{
+	TryReviveOnAuthority();
+}
+
+void AColonialMercenariesCharacter::TryReviveOnAuthority()
+{
+	if (!HasAuthority() || IsIncapacitated() || !GetWorld())
+	{
+		return;
+	}
+
+	AColonialMercenariesCharacter* ClosestDownedTeammate = nullptr;
+	float BestDistanceSq = FMath::Square(FMath::Max(ReviveRange, 50.0f));
+
+	// The server holds at most four co-op controllers. Only run this
+	// search on an explicit revive key press, never on Tick.
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* OtherController = It->Get();
+		AColonialMercenariesCharacter* Candidate = IsValid(OtherController)
+			? Cast<AColonialMercenariesCharacter>(OtherController->GetPawn()) : nullptr;
+		if (!IsValid(Candidate) || Candidate == this || !Candidate->IsIncapacitated())
+		{
+			continue;
+		}
+
+		const float DistanceSq = FVector::DistSquared(
+			GetActorLocation(), Candidate->GetActorLocation());
+		if (DistanceSq > BestDistanceSq)
+		{
+			continue;
+		}
+
+		FCollisionQueryParams TraceParams;
+		TraceParams.AddIgnoredActor(this);
+		FHitResult VisibilityHit;
+		const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+			VisibilityHit, GetPawnViewLocation(),
+			Candidate->GetActorLocation() + FVector(0.0f, 0.0f, 45.0f),
+			ECC_Visibility, TraceParams);
+		if (bBlocked && VisibilityHit.GetActor() != Candidate)
+		{
+			continue;
+		}
+
+		ClosestDownedTeammate = Candidate;
+		BestDistanceSq = DistanceSq;
+	}
+
+	if (IsValid(ClosestDownedTeammate) && IsValid(ClosestDownedTeammate->HealthComponent))
+	{
+		ClosestDownedTeammate->HealthComponent->RestoreHealth(
+			FMath::Max(ReviveHealth, 1.0f));
+	}
+}
+
 void AColonialMercenariesCharacter::BeginAim()
 {
-	if (IsLocallyControlled())
+	if (IsLocallyControlled() && !IsIncapacitated())
 	{
 		SetAiming(true);
 	}
@@ -346,7 +525,8 @@ void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
 
 void AColonialMercenariesCharacter::ServerSetAiming_Implementation(bool bNewAiming)
 {
-	bIsAiming = bNewAiming;
+	// Ignore stale aim RPCs from a player who has already gone down.
+	bIsAiming = bNewAiming && !IsIncapacitated();
 	UpdateAimingPresentation();
 }
 

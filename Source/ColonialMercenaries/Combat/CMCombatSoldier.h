@@ -38,14 +38,14 @@ protected:
 	/** Server-driven tactical decisions (no actor Tick). */
 	void UpdateCombat();
 
-	/** Find the nearest living enemy within detection range. */
-	ACMCombatSoldier* FindClosestHostile() const;
+	/** Find nearest hostile soldier or active player within detection range. */
+	ACharacter* FindClosestHostile() const;
 
 	/** True when a Visibility trace hits the intended target first. */
-	bool HasLineOfFire(const ACMCombatSoldier* Target) const;
+	bool HasLineOfFire(const ACharacter* Target) const;
 
 	/** Fire a prototype hitscan shot; damage is always decided by the server. */
-	void FireAt(ACMCombatSoldier* Target);
+	void FireAt(ACharacter* Target);
 
 	/** Cosmetic tracer, displayed by server and connected clients. */
 	UFUNCTION(NetMulticast, Unreliable)
@@ -114,7 +114,7 @@ protected:
 
 private:
 	FTimerHandle DecisionTimerHandle;
-	TWeakObjectPtr<ACMCombatSoldier> CurrentTarget;
+	TWeakObjectPtr<ACharacter> CurrentTarget;
 	float NextShotTime = 0.0f;
 	float NextMoveRequestTime = 0.0f;
 	bool bLastMoveWasBlockedApproach = false;
