@@ -40,7 +40,7 @@ TSharedRef<SWidget> UCMPrototypeVitalsWidget::RebuildWidget()
 		UCanvasPanelSlot* DamageCanvasSlot = Canvas->AddChildToCanvas(DamageOverlay);
 		if (DamageCanvasSlot)
 		{
-			DamageCanvasSlot->SetAnchors(FAnchors(FVector2D::ZeroVector, FVector2D(1.0f, 1.0f)));
+			DamageCanvasSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
 			DamageCanvasSlot->SetOffsets(FMargin(0.0f));
 			DamageCanvasSlot->SetZOrder(-10);
 		}
@@ -79,7 +79,7 @@ TSharedRef<SWidget> UCMPrototypeVitalsWidget::RebuildWidget()
 		UCanvasPanelSlot* InteractionCanvasSlot = Canvas->AddChildToCanvas(InteractionLabel);
 		if (InteractionCanvasSlot)
 		{
-			InteractionCanvasSlot->SetAnchors(FAnchors(FVector2D(0.5f, 0.78f)));
+			InteractionCanvasSlot->SetAnchors(FAnchors(0.5f, 0.78f, 0.5f, 0.78f));
 			InteractionCanvasSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 			InteractionCanvasSlot->SetAutoSize(true);
 			InteractionCanvasSlot->SetZOrder(12);
@@ -93,7 +93,7 @@ TSharedRef<SWidget> UCMPrototypeVitalsWidget::RebuildWidget()
 		UCanvasPanelSlot* ProgressCanvasSlot = Canvas->AddChildToCanvas(ReviveProgressBar);
 		if (ProgressCanvasSlot)
 		{
-			ProgressCanvasSlot->SetAnchors(FAnchors(FVector2D(0.5f, 0.82f)));
+			ProgressCanvasSlot->SetAnchors(FAnchors(0.5f, 0.82f, 0.5f, 0.82f));
 			ProgressCanvasSlot->SetAlignment(FVector2D(0.5f, 0.5f));
 			ProgressCanvasSlot->SetSize(FVector2D(220.0f, 11.0f));
 			ProgressCanvasSlot->SetZOrder(12);
