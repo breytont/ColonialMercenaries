@@ -17,6 +17,7 @@ class UCMPrototypeVitalsWidget;
 class UCMPrototypeReticleWidget;
 class USceneComponent;
 class UStaticMeshComponent;
+class UWidgetComponent;
 struct FInputActionValue;
 class FLifetimeProperty;
 
@@ -50,6 +51,10 @@ class AColonialMercenariesCharacter : public ACharacter
 	/** Editable test allegiance (unassigned means neutral to prototype factions). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UCMFactionComponent> FactionComponent;
+
+	/** Network-visible screen-space marker above a downed teammate. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UWidgetComponent> DownedMarker;
 
 	/** Editable hand_r attachment: adjust the transform in the character BP. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
@@ -105,7 +110,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
 	TObjectPtr<UInputAction> AimAction;
 
-	/** Press near a downed teammate to revive (IA_Revive, mapped to E). */
+	/** Hold near a downed teammate to revive (IA_Revive, mapped to E). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
 	TObjectPtr<UInputAction> ReviveAction;
 
@@ -133,6 +138,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Casualties",
 		meta=(ClampMin="50.0"))
 	float ReviveRange = 230.0f;
+
+	/** Hold-E time to revive, validated by the server. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Casualties",
+		meta=(ClampMin="0.2"))
+	float ReviveHoldSeconds = 1.6f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Casualties")
 	TSubclassOf<UCMPrototypeVitalsWidget> VitalsWidgetClass;
@@ -172,6 +182,17 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	bool IsIncapacitated() const;
 
+	/** Nearby downed teammate with line of sight; local HUD queries at 5-10 Hz. */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Casualties")
+	AColonialMercenariesCharacter* FindReviveCandidate() const;
+
+	/** Cosmetic progress from replicated start time; completion is server-only. */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Casualties")
+	float GetReviveProgress() const;
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Casualties")
+	bool IsRevivingTeammate() const { return IsValid(ActiveReviveTarget); }
+
 	/** IK effector position relative to the mannequin hand_r bone.
 	 * The support grip rides with the weapon; IK is solved against hand_r
 	 * within the AnimGraph rather than tracking a previous-frame world pose.
@@ -199,11 +220,18 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	void Fire();
-	void TryRevive();
-	void TryReviveOnAuthority();
+	void StartReviveHold();
+	void CancelReviveHold();
+	void StartReviveHoldOnAuthority();
+	void CancelReviveHoldOnAuthority();
+	void UpdateReviveHoldOnAuthority();
+	bool CanReviveCandidate(const AColonialMercenariesCharacter* Candidate) const;
 
 	UFUNCTION(Server, Reliable)
-	void ServerTryRevive();
+	void ServerStartReviveHold();
+
+	UFUNCTION(Server, Reliable)
+	void ServerCancelReviveHold();
 
 	UFUNCTION()
 	void HandlePlayerDowned();
@@ -235,6 +263,14 @@ protected:
 	FVector NormalCameraSocketOffset = FVector::ZeroVector;
 	FTimerHandle AimCameraBlendTimerHandle;
 	FTimerHandle BleedOutTimerHandle;
+	FTimerHandle ReviveHoldTimerHandle;
+
+	/** Owner-only HUD state, not client-authoritative revive permission. */
+	UPROPERTY(Replicated, Transient)
+	TObjectPtr<AColonialMercenariesCharacter> ActiveReviveTarget;
+
+	UPROPERTY(Replicated, Transient)
+	float ReviveStartServerTime = 0.0f;
 	float AimCameraBlendStartTime = 0.0f;
 	float AimCameraBlendStartArm = 400.0f;
 	FVector AimCameraBlendStartOffset = FVector::ZeroVector;
