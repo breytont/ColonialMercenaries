@@ -5,6 +5,10 @@
 #include "Combat/CMHealthComponent.h"
 #include "Combat/CMFactionComponent.h"
 #include "UI/CMPrototypeVitalsWidget.h"
+#include "UI/CMDownedMarkerWidget.h"
+#include "Components/WidgetComponent.h"
+#include "EngineUtils.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
@@ -34,6 +38,15 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 	PrototypeWeapon = CreateDefaultSubobject<UCMPrototypeWeaponComponent>(TEXT("PrototypeWeapon"));
 	HealthComponent = CreateDefaultSubobject<UCMHealthComponent>(TEXT("Health"));
 	FactionComponent = CreateDefaultSubobject<UCMFactionComponent>(TEXT("Faction"));
+
+	DownedMarker = CreateDefaultSubobject<UWidgetComponent>(TEXT("DownedMarker"));
+	DownedMarker->SetupAttachment(GetCapsuleComponent());
+	DownedMarker->SetRelativeLocation(FVector(0.0f, 0.0f, 150.0f));
+	DownedMarker->SetWidgetSpace(EWidgetSpace::Screen);
+	DownedMarker->SetWidgetClass(UCMDownedMarkerWidget::StaticClass());
+	DownedMarker->SetDrawAtDesiredSize(true);
+	DownedMarker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	DownedMarker->SetVisibility(false);
 	VitalsWidgetClass = UCMPrototypeVitalsWidget::StaticClass();
 	SetCanBeDamaged(true);
 	ReticleWidgetClass = UCMPrototypeReticleWidget::StaticClass();
@@ -227,6 +240,7 @@ void AColonialMercenariesCharacter::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
 	GetWorldTimerManager().ClearTimer(BleedOutTimerHandle);
+	GetWorldTimerManager().ClearTimer(ReviveHoldTimerHandle);
 	if (IsValid(ActiveReticleWidget))
 	{
 		ActiveReticleWidget->RemoveFromParent();
@@ -245,6 +259,8 @@ void AColonialMercenariesCharacter::GetLifetimeReplicatedProps(
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AColonialMercenariesCharacter, bIsAiming);
+	DOREPLIFETIME_CONDITION(AColonialMercenariesCharacter, ActiveReviveTarget, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(AColonialMercenariesCharacter, ReviveStartServerTime, COND_OwnerOnly);
 }
 
 void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -273,7 +289,11 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 		if (ReviveAction)
 		{
 			EnhancedInputComponent->BindAction(ReviveAction, ETriggerEvent::Started,
-				this, &AColonialMercenariesCharacter::TryRevive);
+				this, &AColonialMercenariesCharacter::StartReviveHold);
+			EnhancedInputComponent->BindAction(ReviveAction, ETriggerEvent::Completed,
+				this, &AColonialMercenariesCharacter::CancelReviveHold);
+			EnhancedInputComponent->BindAction(ReviveAction, ETriggerEvent::Canceled,
+				this, &AColonialMercenariesCharacter::CancelReviveHold);
 		}
 		if (AimAction)
 		{
@@ -379,8 +399,14 @@ void AColonialMercenariesCharacter::HandlePlayerDowned()
 	}
 	bIsAiming = false;
 	UpdateAimingPresentation();
+	if (IsValid(DownedMarker))
+	{
+		DownedMarker->SetVisibility(true);
+	}
 
 	if (HasAuthority() && GetWorld())
+	{
+		CancelReviveHoldOnAuthority();
 	{
 		GetWorldTimerManager().SetTimer(BleedOutTimerHandle, this,
 			&AColonialMercenariesCharacter::FinishBleedOut,
@@ -391,6 +417,10 @@ void AColonialMercenariesCharacter::HandlePlayerDowned()
 void AColonialMercenariesCharacter::HandlePlayerRevived()
 {
 	GetWorldTimerManager().ClearTimer(BleedOutTimerHandle);
+	if (IsValid(DownedMarker))
+	{
+		DownedMarker->SetVisibility(false);
+	}
 	if (IsValid(GetCharacterMovement()))
 	{
 		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
@@ -416,77 +446,177 @@ void AColonialMercenariesCharacter::FinishBleedOut()
 	}
 }
 
-void AColonialMercenariesCharacter::TryRevive()
+bool AColonialMercenariesCharacter::CanReviveCandidate(
+	const AColonialMercenariesCharacter* Candidate) const
+{
+	if (!IsValid(Candidate) || Candidate == this || !Candidate->IsIncapacitated()
+		|| IsIncapacitated() || !GetWorld())
+	{
+		return false;
+	}
+
+	if (FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation())
+		> FMath::Square(FMath::Max(ReviveRange, 50.0f)))
+	{
+		return false;
+	}
+
+	FCollisionQueryParams TraceParams;
+	TraceParams.AddIgnoredActor(this);
+	FHitResult VisibilityHit;
+	const bool bBlockingHit = GetWorld()->LineTraceSingleByChannel(
+		VisibilityHit, GetPawnViewLocation(),
+		Candidate->GetActorLocation() + FVector(0.0f, 0.0f, 45.0f),
+		ECC_Visibility, TraceParams);
+	return !bBlockingHit || VisibilityHit.GetActor() == Candidate;
+}
+
+AColonialMercenariesCharacter* AColonialMercenariesCharacter::FindReviveCandidate() const
+{
+	if (IsIncapacitated() || !GetWorld())
+	{
+		return nullptr;
+	}
+
+	AColonialMercenariesCharacter* Closest = nullptr;
+	float ClosestDistanceSq = FMath::Square(FMath::Max(ReviveRange, 50.0f));
+
+	// Client and server both have the replicated co-op pawn actors.
+	// Called by a local HUD timer (10 Hz) or on an E press, never Actor Tick.
+	for (TActorIterator<AColonialMercenariesCharacter> It(GetWorld()); It; ++It)
+	{
+		AColonialMercenariesCharacter* Candidate = *It;
+		if (!CanReviveCandidate(Candidate))
+		{
+			continue;
+		}
+		const float DistanceSq = FVector::DistSquared(
+			GetActorLocation(), Candidate->GetActorLocation());
+		if (DistanceSq <= ClosestDistanceSq)
+		{
+			Closest = Candidate;
+			ClosestDistanceSq = DistanceSq;
+		}
+	}
+	return Closest;
+}
+
+float AColonialMercenariesCharacter::GetReviveProgress() const
+{
+	if (!IsValid(ActiveReviveTarget) || !GetWorld())
+	{
+		return 0.0f;
+	}
+
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	const float CurrentTime = GameState
+		? GameState->GetServerWorldTimeSeconds() : GetWorld()->GetTimeSeconds();
+	return FMath::Clamp((CurrentTime - ReviveStartServerTime)
+		/ FMath::Max(ReviveHoldSeconds, 0.2f), 0.0f, 1.0f);
+}
+
+void AColonialMercenariesCharacter::StartReviveHold()
 {
 	if (!IsLocallyControlled() || IsIncapacitated())
 	{
 		return;
 	}
-
 	if (HasAuthority())
 	{
-		TryReviveOnAuthority();
+		StartReviveHoldOnAuthority();
 	}
 	else
 	{
-		ServerTryRevive();
+		ServerStartReviveHold();
 	}
 }
 
-void AColonialMercenariesCharacter::ServerTryRevive_Implementation()
+void AColonialMercenariesCharacter::CancelReviveHold()
 {
-	TryReviveOnAuthority();
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+	if (HasAuthority())
+	{
+		CancelReviveHoldOnAuthority();
+	}
+	else
+	{
+		ServerCancelReviveHold();
+	}
 }
 
-void AColonialMercenariesCharacter::TryReviveOnAuthority()
+void AColonialMercenariesCharacter::ServerStartReviveHold_Implementation()
 {
-	if (!HasAuthority() || IsIncapacitated() || !GetWorld())
+	StartReviveHoldOnAuthority();
+}
+
+void AColonialMercenariesCharacter::ServerCancelReviveHold_Implementation()
+{
+	CancelReviveHoldOnAuthority();
+}
+
+void AColonialMercenariesCharacter::StartReviveHoldOnAuthority()
+{
+	if (!HasAuthority() || IsIncapacitated() || !GetWorld()
+		|| IsValid(ActiveReviveTarget))
 	{
 		return;
 	}
 
-	AColonialMercenariesCharacter* ClosestDownedTeammate = nullptr;
-	float BestDistanceSq = FMath::Square(FMath::Max(ReviveRange, 50.0f));
-
-	// The server holds at most four co-op controllers. Only run this
-	// search on an explicit revive key press, never on Tick.
-	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	AColonialMercenariesCharacter* Candidate = FindReviveCandidate();
+	if (!IsValid(Candidate))
 	{
-		APlayerController* OtherController = It->Get();
-		AColonialMercenariesCharacter* Candidate = IsValid(OtherController)
-			? Cast<AColonialMercenariesCharacter>(OtherController->GetPawn()) : nullptr;
-		if (!IsValid(Candidate) || Candidate == this || !Candidate->IsIncapacitated())
-		{
-			continue;
-		}
-
-		const float DistanceSq = FVector::DistSquared(
-			GetActorLocation(), Candidate->GetActorLocation());
-		if (DistanceSq > BestDistanceSq)
-		{
-			continue;
-		}
-
-		FCollisionQueryParams TraceParams;
-		TraceParams.AddIgnoredActor(this);
-		FHitResult VisibilityHit;
-		const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
-			VisibilityHit, GetPawnViewLocation(),
-			Candidate->GetActorLocation() + FVector(0.0f, 0.0f, 45.0f),
-			ECC_Visibility, TraceParams);
-		if (bBlocked && VisibilityHit.GetActor() != Candidate)
-		{
-			continue;
-		}
-
-		ClosestDownedTeammate = Candidate;
-		BestDistanceSq = DistanceSq;
+		return;
 	}
 
-	if (IsValid(ClosestDownedTeammate) && IsValid(ClosestDownedTeammate->HealthComponent))
+	ActiveReviveTarget = Candidate;
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	ReviveStartServerTime = GameState
+		? GameState->GetServerWorldTimeSeconds() : GetWorld()->GetTimeSeconds();
+	ForceNetUpdate();
+
+	GetWorldTimerManager().SetTimer(ReviveHoldTimerHandle, this,
+		&AColonialMercenariesCharacter::UpdateReviveHoldOnAuthority,
+		0.05f, true);
+}
+
+void AColonialMercenariesCharacter::UpdateReviveHoldOnAuthority()
+{
+	if (!HasAuthority() || !CanReviveCandidate(ActiveReviveTarget))
 	{
-		ClosestDownedTeammate->HealthComponent->RestoreHealth(
+		CancelReviveHoldOnAuthority();
+		return;
+	}
+
+	if (GetReviveProgress() < 1.0f)
+	{
+		return;
+	}
+
+	AColonialMercenariesCharacter* RevivedPlayer = ActiveReviveTarget;
+	CancelReviveHoldOnAuthority();
+	if (IsValid(RevivedPlayer) && IsValid(RevivedPlayer->HealthComponent))
+	{
+		RevivedPlayer->HealthComponent->RestoreHealth(
 			FMath::Max(ReviveHealth, 1.0f));
+	}
+}
+
+void AColonialMercenariesCharacter::CancelReviveHoldOnAuthority()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(ReviveHoldTimerHandle);
+	if (IsValid(ActiveReviveTarget) || ReviveStartServerTime != 0.0f)
+	{
+		ActiveReviveTarget = nullptr;
+		ReviveStartServerTime = 0.0f;
+		ForceNetUpdate();
 	}
 }
 
