@@ -407,7 +407,6 @@ void AColonialMercenariesCharacter::HandlePlayerDowned()
 	if (HasAuthority() && GetWorld())
 	{
 		CancelReviveHoldOnAuthority();
-	{
 		GetWorldTimerManager().SetTimer(BleedOutTimerHandle, this,
 			&AColonialMercenariesCharacter::FinishBleedOut,
 			FMath::Max(BleedOutSeconds, 1.0f), false);
