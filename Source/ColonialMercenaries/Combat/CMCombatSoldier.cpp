@@ -9,6 +9,8 @@
 #include "Components/SceneComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundAttenuation.h"
 #include "Net/UnrealNetwork.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -85,6 +87,21 @@ ACMCombatSoldier::ACMCombatSoldier()
 	if (RifleFireMontage.Succeeded())
 	{
 		FireMontage = RifleFireMontage.Object;
+	}
+
+	// These audio assets are already part of the repo and are temporary
+	// until soldiers and players share configurable weapon presentation.
+	static ConstructorHelpers::FObjectFinder<USoundBase> PrototypeGunshot(
+		TEXT("/Game/ColonialMercenaries/Audio/Gunshot_Prototype.Gunshot_Prototype"));
+	static ConstructorHelpers::FObjectFinder<USoundAttenuation> PrototypeAttenuation(
+		TEXT("/Game/ColonialMercenaries/Audio/ATT_CM_Gunshot.ATT_CM_Gunshot"));
+	if (PrototypeGunshot.Succeeded())
+	{
+		GunshotSound = PrototypeGunshot.Object;
+	}
+	if (PrototypeAttenuation.Succeeded())
+	{
+		GunshotAttenuation = PrototypeAttenuation.Object;
 	}
 
 	// The player and the NPCs use compatible hand_r attachments and
@@ -450,6 +467,22 @@ void ACMCombatSoldier::MulticastDrawShot_Implementation(FVector Start, FVector E
 	// Continue showing the existing networked debug tracer. NPC shots are
 	// still resolved by the server, not driven by the montage.
 	DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false, 0.22f, 0, 2.0f);
+
+	// Prototype muzzle feedback is cosmetic only. The actual authoritative
+	// hit trace remains at the soldier's existing torso-height origin.
+	const FVector CosmeticMuzzle = IsValid(PrototypeRifleMuzzle)
+		? PrototypeRifleMuzzle->GetComponentLocation() : Start;
+	if (bDrawMuzzleFlash)
+	{
+		DrawDebugSphere(GetWorld(), CosmeticMuzzle, 9.0f, 8, FColor::Orange,
+			false, 0.09f, 0, 1.5f);
+	}
+	if (IsValid(GunshotSound))
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this, GunshotSound, CosmeticMuzzle, 1.0f, 1.0f,
+			0.0f, GunshotAttenuation);
+	}
 
 	// Montage runs cosmetically on each machine with a relevant soldier.
 	// The original DefaultSlot in ABP_CM_Rifle remains after the aim layer,
