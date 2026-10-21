@@ -11,6 +11,8 @@ class UCMHealthComponent;
 class UStaticMeshComponent;
 class USceneComponent;
 class UAnimMontage;
+class USoundBase;
+class USoundAttenuation;
 class FLifetimeProperty;
 class UTextRenderComponent;
 
@@ -106,6 +108,22 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Animation")
 	TObjectPtr<UAnimMontage> FireMontage;
+
+	/** Short, client-only debug glow at the attached rifle muzzle.
+	 * The current NPC ballistics trace still originates at torso height.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Visual|Effects")
+	bool bDrawMuzzleFlash = true;
+
+	/** Uses checked-in temporary SoundWave; can be replaced per soldier BP. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Audio")
+	TObjectPtr<USoundBase> GunshotSound;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Audio")
+	TObjectPtr<USoundAttenuation> GunshotAttenuation;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual")
 	TObjectPtr<UTextRenderComponent> FactionLabel;
