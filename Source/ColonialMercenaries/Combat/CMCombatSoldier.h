@@ -9,6 +9,8 @@ class ACMCombatSoldier;
 class UCMFactionComponent;
 class UCMHealthComponent;
 class UStaticMeshComponent;
+class USceneComponent;
+class UAnimMontage;
 class UTextRenderComponent;
 
 /**
@@ -31,6 +33,14 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	UCMHealthComponent* GetHealthComponent() const { return HealthComponent; }
+
+	/** Animation bridge: grip marker in right-hand bone space. */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
+	FVector GetPrototypeRifleSupportGripInRightHandSpace() const;
+
+	/** Server-driven firing orientation, replicated to animate client NPCs. */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
+	FRotator GetCombatAimRotation() const { return CombatAimRotation; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -58,9 +68,43 @@ protected:
 	UFUNCTION()
 	void HandleHealthChanged(float NewHealth, float NewMaxHealth);
 
-	/** A simple, replaceable visual so the prototype works without new assets. */
+	/** Retained as a fallback if the mannequin asset is unavailable. Hidden when
+	 * the skeletal mannequin is configured. Existing level actor identities,
+	 * collision profiles, and squad spawners are unchanged.
+	 */
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual")
 	TObjectPtr<UStaticMeshComponent> BodyVisual;
+
+	/** Prototype gun follows the mannequin's right hand. All weapon shapes
+	 * are cosmetic and non-colliding, separate from server damage tracing.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<USceneComponent> PrototypeRifleRoot;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<USceneComponent> PrototypeRifleSupportGrip;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<USceneComponent> PrototypeRifleMuzzle;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<UStaticMeshComponent> RifleReceiver;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<UStaticMeshComponent> RifleBarrel;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<UStaticMeshComponent> RifleStock;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Rifle")
+	TObjectPtr<UStaticMeshComponent> RifleGrip;
+
+	/** Uses the existing third-person rifle montage; can be overridden in
+	 * the faction infantry Blueprint for later weapon types.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Visual|Animation")
+	TObjectPtr<UAnimMontage> FireMontage;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Visual")
 	TObjectPtr<UTextRenderComponent> FactionLabel;
@@ -112,7 +156,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="0.1"))
 	float CorpseLifetime = 7.0f;
 
+	/** Presentation only: server updates when a visible enemy is engaged.
+	 * Does not determine damage, navigation, or the actual trace.
+	 */
+	UPROPERTY(Replicated, Transient)
+	FRotator CombatAimRotation = FRotator::ZeroRotator;
+
 private:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACharacter> CurrentTarget;
 	float NextShotTime = 0.0f;
