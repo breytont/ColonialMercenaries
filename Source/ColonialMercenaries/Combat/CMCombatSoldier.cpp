@@ -154,6 +154,25 @@ ACMCombatSoldier::ACMCombatSoldier()
 	GetMesh()->SetVisibility(MannyMesh.Succeeded());
 }
 
+FVector ACMCombatSoldier::GetPrototypeRifleSupportGripInRightHandSpace() const
+{
+	if (!IsValid(PrototypeRifleRoot) || !IsValid(PrototypeRifleSupportGrip))
+	{
+		return FVector::ZeroVector;
+	}
+
+	// Same bone-space convention as the player rifle's support-hand IK.
+	return PrototypeRifleRoot->GetRelativeTransform().TransformPosition(
+		PrototypeRifleSupportGrip->GetRelativeLocation());
+}
+
+void ACMCombatSoldier::GetLifetimeReplicatedProps(
+	TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ACMCombatSoldier, CombatAimRotation);
+}
+
 void ACMCombatSoldier::BeginPlay()
 {
 	Super::BeginPlay();
@@ -321,8 +340,21 @@ void ACMCombatSoldier::UpdateCombat()
 
 	if (DistanceSquared <= FMath::Square(WeaponRange) && bClearShot)
 	{
-		// An unobstructed target is within weapon range: hold position, fire.
+		// While firing, stop and face the actual target so upper-body rifle
+		// aim and the arm-mounted gun follow its position rather than the
+		// previous nav movement heading. NPC damage calculations remain in
+		// FireAt's authoritative center-of-mass trace for this milestone.
 		if (AI) { AI->StopMovement(); }
+		const FVector ShotOrigin =
+			GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+		const FVector AimAt =
+			Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+		const FVector Direction = (AimAt - ShotOrigin).GetSafeNormal();
+		if (!Direction.IsNearlyZero())
+		{
+			CombatAimRotation = Direction.Rotation();
+			SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+		}
 		bLastMoveWasBlockedApproach = false;
 
 		if (TimeNow >= NextShotTime)
@@ -414,8 +446,20 @@ void ACMCombatSoldier::FireAt(ACharacter* Target)
 
 void ACMCombatSoldier::MulticastDrawShot_Implementation(FVector Start, FVector End)
 {
-	// Temporary combat visualization, not the final tracer/VFX system.
+	// Continue showing the existing networked debug tracer. NPC shots are
+	// still resolved by the server, not driven by the montage.
 	DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false, 0.22f, 0, 2.0f);
+
+	// Montage runs cosmetically on each machine with a relevant soldier.
+	// The original DefaultSlot in ABP_CM_Rifle remains after the aim layer,
+	// allowing short upper-body recoil without interrupting locomotion.
+	if (IsValid(FireMontage) && IsValid(GetMesh()))
+	{
+		if (UAnimInstance* Anim = GetMesh()->GetAnimInstance())
+		{
+			Anim->Montage_Play(FireMontage, 1.0f);
+		}
+	}
 }
 
 void ACMCombatSoldier::HandleHealthChanged(float NewHealth, float NewMaxHealth)
@@ -432,6 +476,11 @@ void ACMCombatSoldier::HandleDeath()
 	GetWorldTimerManager().ClearTimer(DecisionTimerHandle);
 	BodyVisual->SetVisibility(false);
 	FactionLabel->SetVisibility(false);
+	GetMesh()->SetVisibility(false);
+	if (IsValid(PrototypeRifleRoot))
+	{
+		PrototypeRifleRoot->SetVisibility(false, true);
+	}
 	SetActorEnableCollision(false);
 
 	if (HasAuthority())
