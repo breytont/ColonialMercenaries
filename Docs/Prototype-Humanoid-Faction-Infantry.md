@@ -90,3 +90,29 @@ override the mesh/animation settings.
 
 **Review status:** source change is not locally UE-compiled by the assistant.
 User build and playtest are required before merge.
+
+## Playtest findings (2026-10-21; PR intentionally remains draft)
+
+User confirmed that Manny characters replace the cubes and NPCs still
+face one another, fire authoritative yellow traces, and disappear correctly
+with their rifles on death. The following are **not yet passing**:
+
+1. Characters **slide instead of running/walking**. The prior
+   `ABP_CM_Rifle` was duplicated from `ABP_Unarmed` and its locomotion
+   AnimGraph/EventGraph may still use player-specific variables rather
+   than the newly exposed general `CMGroundSpeed`, `CMMovementDirection`
+   and `CMIsInAir`. Inspect that Blueprint in the Editor; its internal
+   asset graph cannot be verified from the Git LFS pointer. Do **not**
+   rewrite it blindly or risk disrupting player animations.
+2. The rifle is **visibly misaligned** with the hands. First confirm the
+   correct upper-body aim pose and grip IK play, then adjust
+   `InfantryRifleRoot` and `InfantryRifleSupportGrip` in a derived soldier
+   Blueprint or the inherited component defaults.
+3. NPC gunfire initially lacked sound and muzzle flash. The branch now
+   hooks the checked-in `Gunshot_Prototype` and `ATT_CM_Gunshot` assets
+   into NPC shot multicasts and draws a brief **orange debug sphere**
+   at `InfantryRifleMuzzle`. They require another C++ build and runtime
+   test before being marked complete.
+
+These issues must be addressed and retested, including 2-player PIE,
+before PR #13 can be merged.
