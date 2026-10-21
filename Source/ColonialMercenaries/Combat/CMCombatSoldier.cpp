@@ -14,6 +14,7 @@
 #include "Components/TextRenderComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
