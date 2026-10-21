@@ -11,6 +11,7 @@ class UCMHealthComponent;
 class UStaticMeshComponent;
 class USceneComponent;
 class UAnimMontage;
+class FLifetimeProperty;
 class UTextRenderComponent;
 
 /**
