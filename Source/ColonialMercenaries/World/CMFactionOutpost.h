@@ -13,6 +13,24 @@ class USceneComponent;
 class UStaticMeshComponent;
 class UTextRenderComponent;
 
+/** Strategic stance selected for the outpost before or during PIE. */
+UENUM(BlueprintType)
+enum class ECMOutpostPosture : uint8
+{
+	Assault UMETA(DisplayName="Assault Objective"),
+	Defend UMETA(DisplayName="Defend Outpost")
+};
+
+/** Current command phase of this outpost's infantry detachment. */
+UENUM(BlueprintType)
+enum class ECMOutpostSquadPhase : uint8
+{
+	Assembly UMETA(DisplayName="Assembling"),
+	Advance UMETA(DisplayName="Advancing"),
+	Retreat UMETA(DisplayName="Withdrawing"),
+	Defend UMETA(DisplayName="Defending")
+};
+
 /**
  * Placeable faction installation with a finite infantry reserve.
  *
@@ -43,6 +61,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Faction Outpost")
 	FGameplayTag GetFactionId() const { return FactionId; }
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Faction Outpost|Squad")
+	ECMOutpostSquadPhase GetSquadPhase() const { return SquadPhase; }
+
+	/** Server-side command hook for future contracts and strategic AI. */
+	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Faction Outpost|Squad")
+	void SetOutpostPosture(ECMOutpostPosture NewPosture);
 
 	/** Server-only entry point for future convoy/logistics replenishment.
 	 * No automatic resupply takes place in this milestone.
@@ -133,6 +158,52 @@ protected:
 		meta=(ClampMin="0.0"))
 	float SpawnHeight = 100.0f;
 
+	/** Coordinates this outpost's infantry; does not affect old squad spawners. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad")
+	ECMOutpostPosture StartingPosture = ECMOutpostPosture::Assault;
+
+	/** Assign the central CMContestedPoint in the map; if unset, march forward. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad")
+	TObjectPtr<AActor> AssaultObjective;
+
+	/** Only used when no AssaultObjective has been assigned. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="300.0"))
+	float FallbackAdvanceDistance = 1800.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="0.0"))
+	float AssemblySeconds = 5.0f;
+
+	/** Retreat if the number of surviving members reaches this threshold. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="0", ClampMax="11"))
+	int32 RetreatAtOrBelow = 1;
+
+	/** Must regain target strength and wait this long before assembling again. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="0.0"))
+	float RegroupSeconds = 4.0f;
+
+	/** Separation between ordered infantry near rally/target locations. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="100.0"))
+	float SquadSlotSpacing = 230.0f;
+
+	/** Intended staging position ahead of outpost, before attack begins. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="0.0"))
+	float AssemblyForwardOffset = 600.0f;
+
+	/** Center distance behind the outpost for withdrawal. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
+		meta=(ClampMin="0.0"))
+	float WithdrawalBackOffset = 350.0f;
+
+	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
+	ECMOutpostSquadPhase SquadPhase = ECMOutpostSquadPhase::Assembly;
+
 	/** Replicated summary, safe to use in later contracts and faction UI. */
 	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Faction Outpost|State")
@@ -149,6 +220,8 @@ protected:
 private:
 	FTimerHandle GarrisonCheckTimerHandle;
 	float NextReinforcementTime = 0.0f;
+	float PhaseStartedAt = 0.0f;
+	ECMOutpostPosture CurrentPosture = ECMOutpostPosture::Assault;
 
 	/** Authority only. Weak references do not prolong soldier lifetime. */
 	TArray<TWeakObjectPtr<ACMCombatSoldier>> FieldedSoldiers;
@@ -157,6 +230,9 @@ private:
 	void CheckGarrison();
 	void RefreshGarrisonState();
 	void RefreshStatusLabel();
+	void SetSquadPhase(ECMOutpostSquadPhase NewPhase);
+	void UpdateSquadOrders();
+	FVector GetSquadSlot(int32 Index, ECMOutpostSquadPhase Phase) const;
 
 	UFUNCTION()
 	void OnRep_OutpostStatus();
