@@ -15,6 +15,18 @@ class USoundBase;
 class USoundAttenuation;
 class FLifetimeProperty;
 class UTextRenderComponent;
+class AAIController;
+
+/** High-level movement/combat intent assigned by an authoritative squad leader. */
+UENUM(BlueprintType)
+enum class ECMSquadOrder : uint8
+{
+	Independent UMETA(DisplayName="Independent"),
+	Rally UMETA(DisplayName="Assemble"),
+	Advance UMETA(DisplayName="Advance"),
+	Defend UMETA(DisplayName="Defend"),
+	Disengage UMETA(DisplayName="Withdraw")
+};
 
 /**
  * Temporary prototype soldier for independent faction combat.
@@ -37,6 +49,13 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	UCMHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
+	/** Outpost/squad leader command; ignored on clients. Independent preserves original AI. */
+	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Combat|Squad")
+	void SetSquadOrder(ECMSquadOrder NewOrder, FVector AssignedPosition);
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Squad")
+	ECMSquadOrder GetSquadOrder() const { return SquadOrder; }
+
 	/** Animation bridge: grip marker in right-hand bone space. */
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
 	FVector GetPrototypeRifleSupportGripInRightHandSpace() const;
@@ -52,7 +71,10 @@ protected:
 	void UpdateCombat();
 
 	/** Find nearest hostile soldier or active player within detection range. */
-	ACharacter* FindClosestHostile() const;
+	ACharacter* FindClosestHostile(float SearchRadius = 0.0f) const;
+
+	/** Squad orders take priority over independent pursuit (server only). */
+	bool UpdateOrderedCombat(AAIController* AI);
 
 	/** True when a Visibility trace hits the intended target first. */
 	bool HasLineOfFire(const ACharacter* Target) const;
@@ -181,11 +203,17 @@ protected:
 	UPROPERTY(Replicated, Transient)
 	FRotator CombatAimRotation = FRotator::ZeroRotator;
 
+	UPROPERTY(Replicated, Transient, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Combat|Squad")
+	ECMSquadOrder SquadOrder = ECMSquadOrder::Independent;
+
 private:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACharacter> CurrentTarget;
+	FVector SquadPosition = FVector::ZeroVector;
+	bool bSquadMoveDirty = false;
 	float NextShotTime = 0.0f;
 	float NextMoveRequestTime = 0.0f;
 	bool bLastMoveWasBlockedApproach = false;
