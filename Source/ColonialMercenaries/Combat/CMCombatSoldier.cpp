@@ -220,6 +220,21 @@ void ACMCombatSoldier::SetSquadOrder(
 	ForceNetUpdate();
 }
 
+void ACMCombatSoldier::SetSharedDefenseContact(
+	ACharacter* Threat, FVector NewDefenseCenter, float NewAssistRadius)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Shared awareness is local authority-only AI state. The outpost
+	// validates the contact and supplies the defense perimeter.
+	SharedDefenseTarget = Threat;
+	DefenseCenter = NewDefenseCenter;
+	DefenseAssistRadius = FMath::Max(NewAssistRadius, 100.0f);
+}
+
 bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 {
 	if (SquadOrder == ECMSquadOrder::Independent)
@@ -272,6 +287,115 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 
 	CurrentTarget.Reset();
 	bLastMoveWasBlockedApproach = false;
+
+	// Defenders assist a squadmate's verified contact, even when the
+	// enemy is outside their own weapon range or behind nearby cover.
+	// Orders are still confined to a bounded zone around the outpost.
+	if (SquadOrder == ECMSquadOrder::Defend)
+	{
+		ACharacter* Contact = SharedDefenseTarget.Get();
+		const UCMHealthComponent* ContactHealth =
+			IsValid(Contact) ? Contact->FindComponentByClass<UCMHealthComponent>() : nullptr;
+		const UCMFactionComponent* ContactFaction =
+			IsValid(Contact) ? Contact->FindComponentByClass<UCMFactionComponent>() : nullptr;
+		if (IsValid(Contact) && IsValid(ContactHealth)
+			&& !ContactHealth->IsDead()
+			&& FactionComponent->IsHostileTo(ContactFaction)
+			&& FVector::DistSquared2D(
+				Contact->GetActorLocation(), DefenseCenter)
+				<= FMath::Square(DefenseAssistRadius))
+		{
+			const FVector EnemyPosition = Contact->GetActorLocation();
+			const FVector ToEnemy = EnemyPosition - GetActorLocation();
+			const bool bVisible = HasLineOfFire(Contact);
+			const float DistanceSq = FVector::DistSquared(
+				GetActorLocation(), EnemyPosition);
+
+			if (DistanceSq <= FMath::Square(WeaponRange) && bVisible)
+			{
+				AI->StopMovement();
+				bSquadMoveDirty = true;
+				bWasAssisting = true;
+				CurrentTarget = Contact;
+
+				const FVector AimFrom = GetActorLocation()
+					+ FVector(0.0f, 0.0f, AimHeight);
+				const FVector AimAt = EnemyPosition
+					+ FVector(0.0f, 0.0f, AimHeight);
+				const FVector Direction = (AimAt - AimFrom).GetSafeNormal();
+				if (!Direction.IsNearlyZero())
+				{
+					CombatAimRotation = Direction.Rotation();
+					SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+				}
+				if (Now >= NextShotTime)
+				{
+					FireAt(Contact);
+					NextShotTime = Now + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
+				}
+				return true;
+			}
+
+			// Each rifleman chooses a standoff point along its own approach
+			// direction. Different initial slots yield different approach
+			// angles rather than everyone sharing a single MoveToActor goal.
+			// If visibility is blocked, close further to seek a firing lane.
+			const float StandOff = bVisible
+				? WeaponRange * 0.75f : WeaponRange * 0.4f;
+			FVector Goal = EnemyPosition
+				- ToEnemy.GetSafeNormal2D() * StandOff;
+			FVector FromBase = Goal - DefenseCenter;
+			const float MaxGoalDistance = FMath::Max(
+				DefenseAssistRadius - 150.0f, 100.0f);
+			const float HorizontalDistance = FromBase.Size2D();
+			if (HorizontalDistance > MaxGoalDistance)
+			{
+				Goal = DefenseCenter
+					+ FromBase.GetSafeNormal2D() * MaxGoalDistance
+					+ FVector(0.0f, 0.0f, FromBase.Z);
+			}
+
+			const bool bGoalChanged =
+				FVector::DistSquared2D(Goal, LastAssistDestination)
+				> FMath::Square(175.0f);
+			if (!bWasAssisting || bGoalChanged
+				|| (AI->GetMoveStatus() != EPathFollowingStatus::Moving
+					&& Now >= NextMoveRequestTime))
+			{
+				const EPathFollowingRequestResult::Type Result =
+					AI->MoveToLocation(Goal, 100.0f);
+				if (Result == EPathFollowingRequestResult::Failed
+					&& !bReportedMoveFailure)
+				{
+					UE_LOG(LogTemp, Warning,
+						TEXT("CM soldier %s could not move to defensive support position."),
+						*GetName());
+					bReportedMoveFailure = true;
+				}
+				else if (Result != EPathFollowingRequestResult::Failed)
+				{
+					bReportedMoveFailure = false;
+				}
+				NextMoveRequestTime = Now
+					+ FMath::Max(PathRetryInterval, 0.1f);
+				LastAssistDestination = Goal;
+				bWasAssisting = true;
+				bSquadMoveDirty = true;
+			}
+			return true;
+		}
+	}
+
+	// When the outpost loses contact, return to the assigned guard slot.
+	if (bWasAssisting)
+	{
+		bWasAssisting = false;
+		bSquadMoveDirty = true;
+		if (AI->GetMoveStatus() == EPathFollowingStatus::Moving)
+		{
+			AI->StopMovement();
+		}
+	}
 
 	const float AcceptanceRadius =
 		SquadOrder == ECMSquadOrder::Advance ? 125.0f : 100.0f;
