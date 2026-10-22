@@ -56,6 +56,17 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Squad")
 	ECMSquadOrder GetSquadOrder() const { return SquadOrder; }
 
+	/** Current visible opponent being engaged, for the owning outpost's
+	 * short-range squad contact reports. May be null or stale; validate it.
+	 */
+	ACharacter* GetEngagedTarget() const { return CurrentTarget.Get(); }
+
+	/** Server-only shared contact. Never turns an independent soldier into
+	 * a defender and never permits pursuit outside the supplied perimeter.
+	 */
+	void SetSharedDefenseContact(
+		ACharacter* Threat, FVector DefenseCenter, float AssistRadius);
+
 	/** Animation bridge: grip marker in right-hand bone space. */
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
 	FVector GetPrototypeRifleSupportGripInRightHandSpace() const;
@@ -212,6 +223,11 @@ private:
 
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACharacter> CurrentTarget;
+	TWeakObjectPtr<ACharacter> SharedDefenseTarget;
+	FVector DefenseCenter = FVector::ZeroVector;
+	float DefenseAssistRadius = 1900.0f;
+	FVector LastAssistDestination = FVector::ZeroVector;
+	bool bWasAssisting = false;
 	FVector SquadPosition = FVector::ZeroVector;
 	bool bSquadMoveDirty = false;
 	float NextShotTime = 0.0f;
