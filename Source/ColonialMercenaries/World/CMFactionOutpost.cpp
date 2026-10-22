@@ -387,6 +387,11 @@ void ACMFactionOutpost::RefreshStatusLabel()
 		: (ShortFaction == TEXT("BLUE") ? FColor::Cyan : FColor::White));
 
 	const int32 GarrisonLimit = FMath::Clamp(TargetGarrisonSize, 1, 12);
+	const TCHAR* PhaseText =
+		SquadPhase == ECMOutpostSquadPhase::Assembly ? TEXT("ASSEMBLING")
+		: SquadPhase == ECMOutpostSquadPhase::Advance ? TEXT("ADVANCING")
+		: SquadPhase == ECMOutpostSquadPhase::Retreat ? TEXT("WITHDRAWING")
+		: TEXT("DEFENDING");
 	FString Status = TEXT("Garrison ready");
 	if (ActiveGarrison < GarrisonLimit && ReserveRemaining <= 0)
 	{
@@ -398,9 +403,9 @@ void ACMFactionOutpost::RefreshStatusLabel()
 	}
 
 	StatusLabel->SetText(FText::FromString(FString::Printf(
-		TEXT("%s [%s]\nGarrison %d/%d  |  Reserve %d\n%s"),
+		TEXT("%s [%s]\nGarrison %d/%d  |  Reserve %d\n%s  |  %s"),
 		*OutpostName, *ShortFaction, ActiveGarrison, GarrisonLimit,
-		ReserveRemaining, *Status)));
+		ReserveRemaining, PhaseText, *Status)));
 }
 
 void ACMFactionOutpost::OnRep_OutpostStatus()
