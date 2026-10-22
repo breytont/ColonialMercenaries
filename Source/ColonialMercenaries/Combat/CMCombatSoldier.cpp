@@ -108,8 +108,13 @@ ACMCombatSoldier::ACMCombatSoldier()
 	// left-hand support IK. Meshes do not influence hit detection or cover.
 	PrototypeRifleRoot = CreateDefaultSubobject<USceneComponent>(TEXT("InfantryRifleRoot"));
 	PrototypeRifleRoot->SetupAttachment(GetMesh(), TEXT("hand_r"));
-	PrototypeRifleRoot->SetRelativeLocation(FVector(4.0f, -8.0f, -3.0f));
-	PrototypeRifleRoot->SetRelativeRotation(FRotator(0.0f, 0.0f, -90.0f));
+	// Match the player's calibrated BP_ThirdPersonCharacter rifle-root
+	// attachment. Unreal Details displays Rotation as X=Roll, Y=Pitch,
+	// Z=Yaw, while FRotator's constructor expects (Pitch, Yaw, Roll).
+	PrototypeRifleRoot->SetRelativeLocation(
+		FVector(-19.90523f, 6.200215f, 5.865171f));
+	PrototypeRifleRoot->SetRelativeRotation(
+		FRotator(-11.468771f, 173.741358f, 8.099865f));
 
 	PrototypeRifleSupportGrip = CreateDefaultSubobject<USceneComponent>(
 		TEXT("InfantryRifleSupportGrip"));
