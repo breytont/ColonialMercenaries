@@ -57,6 +57,44 @@ Details category:
 - `SetOutpostPosture` (Blueprint-callable, authority only) supports later
   strategic/gameplay calls to switch between Assault and Defend.
 
+### Shared squad defensive contact (feedback refinement)
+
+A defending soldier can see/shoot an opponent within its own 950 cm
+rifle range, while squadmates at the opposite end of the formation may be
+too far away to return fire. The original Defend logic would leave those
+other soldiers idle even though the **squad** was already in combat.
+
+The outpost commander now checks its **own** engaged riflemen for a valid,
+living hostile contact on the existing one-second timer. When one is found
+within its configured `DefensiveAssistRadius` (default **1900 cm from the
+outpost**), it alerts the remaining defenders. Their server-controlled AI:
+
+- Tries to shoot the shared target when actually in weapon range with
+  an unobstructed line of fire.
+- Otherwise moves toward a **bounded supporting position**, with each
+  soldier approaching from its own angle. This is intentionally not a
+  single group MoveTo target.
+- Stops at the configured defensive perimeter instead of chasing enemies
+  indefinitely.
+- Holds the last report for `DefensiveContactMemorySeconds` (default **4**)
+  to keep moving when another soldier briefly loses line of sight.
+- Clears the contact on enemy death, target retreat beyond the perimeter,
+  or expiration; surviving defenders resume their original guard slots.
+- Does **not** call in help during `Assembly` or `Disengage`, and does
+  not alter the independent soldier mode.
+
+In PIE the status label shows **DEFENDING - CONTACT** while the group is
+responding to a shared hostile. The contact flag is replicated to clients.
+The underlying threat pointer/desired firing positions are authoritative
+AI state only.
+
+**Limits:** This is a first-pass shared-contact and supporting fire
+behavior, *not* a tactical cover-finding/flanking planner. Pathing is
+constrained by available NavMesh and sight lines. The fallback position
+is geometric and may need later tuning for difficult terrain. This
+first feedback iteration specifically improves outpost `Defend` orders;
+a general squad threat coordinator for mobile assaults can follow.
+
 The outpost's replicated overhead status now includes **ASSEMBLING**,
 **ADVANCING**, **WITHDRAWING**, or **DEFENDING**. Existing faction, garrison,
 reserve and reinforcement state remain replicated.
@@ -93,9 +131,17 @@ continues to use local finite manpower reserves from milestone #14.
    label should return to **ASSEMBLING** and then **ADVANCING** for the next
    assault. Verify the reserve decreased for each replacement and reaches
    zero as before.
-8. Optional defend test: set one outpost **Starting Posture = Defend**,
-   restart PIE. Its soldiers should stay near their base, firing only at
-   hostiles that enter weapon range. Opponent can continue assaulting.
+8. **Shared-defense test:** set Red **Starting Posture = Defend**
+   and move the Red outpost temporarily within about 900–1,000 cm of the
+   contested point, with Blue remaining on Assault. Confirm one Red
+   soldier engages Blue as they enter range, the Red label displays
+   **DEFENDING - CONTACT**, and other Red soldiers step out from guard
+   slots toward distinct supporting positions and begin firing as soon
+   as they have their own line of sight and range. They must not chase
+   Blue indefinitely far past the **1900 cm** defense perimeter.
+   Once the contact is lost or killed, surviving Red infantry return to
+   their guard positions. Restore the original Red location after testing
+   if you do not want the close-range setup in the test level.
 9. PIE with **2 players**: verify both windows display the same outpost
    orders, walking and firing; no duplicate spawns. Check player shooting,
    revive, and capture-point functionality.
@@ -121,6 +167,9 @@ continues to use local finite manpower reserves from milestone #14.
 - [ ] Two outposts rally, advance, and fight toward assigned contested point.
 - [ ] At 1 survivor, retreat order interrupts enemy pursuit.
 - [ ] Reserves remain finite; sufficiently replenished units regroup/redeploy.
-- [ ] Optional Defend posture guards near base, not permanent pursuit.
+- [ ] Defending squad shares contacts: nonengaged members reposition,
+      acquire line of sight and provide supporting fire inside its perimeter.
+- [ ] Defenders return to guard posts after contact is killed/lost.
+- [ ] Defend posture still avoids permanent long-range pursuit.
 - [ ] Client replication and old independent combat verified in 2-player PIE.
 - [ ] Edited map/External Actor assets pushed.
