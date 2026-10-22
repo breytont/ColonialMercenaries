@@ -194,6 +194,120 @@ void ACMCombatSoldier::GetLifetimeReplicatedProps(
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ACMCombatSoldier, CombatAimRotation);
+	DOREPLIFETIME(ACMCombatSoldier, SquadOrder);
+}
+
+void ACMCombatSoldier::SetSquadOrder(
+	ECMSquadOrder NewOrder, FVector AssignedPosition)
+{
+	if (!HasAuthority() || HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	// Do not re-path every time the command timer resends an identical order.
+	if (SquadOrder == NewOrder
+		&& FVector::DistSquared(SquadPosition, AssignedPosition) < FMath::Square(25.0f))
+	{
+		return;
+	}
+
+	SquadOrder = NewOrder;
+	SquadPosition = AssignedPosition;
+	CurrentTarget.Reset();
+	bSquadMoveDirty = true;
+	NextMoveRequestTime = 0.0f;
+	ForceNetUpdate();
+}
+
+bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
+{
+	if (SquadOrder == ECMSquadOrder::Independent)
+	{
+		return false;
+	}
+	if (!AI || !GetWorld())
+	{
+		return true;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+
+	// Assemble and withdraw take priority over fighting. During advance
+	// or defend, each member holds its assigned slot unless an enemy is
+	// within *weapon* range and directly visible. This prevents the old
+	// 6500cm pursuit logic from scattering the formation.
+	if (SquadOrder == ECMSquadOrder::Advance
+		|| SquadOrder == ECMSquadOrder::Defend)
+	{
+		ACharacter* Target = FindClosestHostile(WeaponRange);
+		if (IsValid(Target)
+			&& FVector::DistSquared(GetActorLocation(), Target->GetActorLocation())
+				<= FMath::Square(WeaponRange)
+			&& HasLineOfFire(Target))
+		{
+			AI->StopMovement();
+			bSquadMoveDirty = true;
+			CurrentTarget = Target;
+
+			const FVector ShotOrigin =
+				GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+			const FVector AimAt =
+				Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+			const FVector Direction = (AimAt - ShotOrigin).GetSafeNormal();
+			if (!Direction.IsNearlyZero())
+			{
+				CombatAimRotation = Direction.Rotation();
+				SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+			}
+
+			if (Now >= NextShotTime)
+			{
+				FireAt(Target);
+				NextShotTime = Now + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
+			}
+			return true;
+		}
+	}
+
+	CurrentTarget.Reset();
+	bLastMoveWasBlockedApproach = false;
+
+	const float AcceptanceRadius =
+		SquadOrder == ECMSquadOrder::Advance ? 125.0f : 100.0f;
+	if (FVector::DistSquared2D(GetActorLocation(), SquadPosition)
+		<= FMath::Square(AcceptanceRadius))
+	{
+		if (AI->GetMoveStatus() == EPathFollowingStatus::Moving)
+		{
+			AI->StopMovement();
+		}
+		bSquadMoveDirty = false;
+		return true;
+	}
+
+	if (bSquadMoveDirty
+		|| (AI->GetMoveStatus() != EPathFollowingStatus::Moving
+			&& Now >= NextMoveRequestTime))
+	{
+		const EPathFollowingRequestResult::Type Result =
+			AI->MoveToLocation(SquadPosition, AcceptanceRadius);
+		bSquadMoveDirty = false;
+		NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
+		if (Result == EPathFollowingRequestResult::Failed && !bReportedMoveFailure)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("CM soldier %s cannot navigate to squad %s position. Check connected NavMesh."),
+				*GetName(), *UEnum::GetValueAsString(SquadOrder));
+			bReportedMoveFailure = true;
+		}
+		else if (Result != EPathFollowingRequestResult::Failed)
+		{
+			bReportedMoveFailure = false;
+		}
+	}
+
+	return true;
 }
 
 void ACMCombatSoldier::BeginPlay()
@@ -260,13 +374,16 @@ bool ACMCombatSoldier::HasLineOfFire(const ACharacter* Target) const
 	return bClear;
 }
 
-ACharacter* ACMCombatSoldier::FindClosestHostile() const
+ACharacter* ACMCombatSoldier::FindClosestHostile(float SearchRadius) const
 {
 	UWorld* World = GetWorld();
 	if (!World || !FactionComponent || !FactionComponent->GetFactionId().IsValid())
 	{
 		return nullptr;
 	}
+
+	const float EffectiveRange = SearchRadius > 0.0f
+		? FMath::Min(DetectionRange, SearchRadius) : DetectionRange;
 
 	TArray<FOverlapResult> Overlaps;
 	FCollisionObjectQueryParams ObjectTypes;
@@ -277,12 +394,12 @@ ACharacter* ACMCombatSoldier::FindClosestHostile() const
 
 	World->OverlapMultiByObjectType(
 		Overlaps, GetActorLocation(), FQuat::Identity, ObjectTypes,
-		FCollisionShape::MakeSphere(DetectionRange), QueryParams);
+		FCollisionShape::MakeSphere(EffectiveRange), QueryParams);
 
 	ACharacter* ClosestVisible = nullptr;
 	ACharacter* ClosestObstructed = nullptr;
-	float VisibleDistanceSquared = FMath::Square(DetectionRange);
-	float ObstructedDistanceSquared = FMath::Square(DetectionRange);
+	float VisibleDistanceSquared = FMath::Square(EffectiveRange);
+	float ObstructedDistanceSquared = FMath::Square(EffectiveRange);
 
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
@@ -306,7 +423,7 @@ ACharacter* ACMCombatSoldier::FindClosestHostile() const
 
 		const float DistSquared = FVector::DistSquared(
 			GetActorLocation(), Candidate->GetActorLocation());
-		if (DistSquared >= FMath::Square(DetectionRange))
+		if (DistSquared >= FMath::Square(EffectiveRange))
 		{
 			continue;
 		}
@@ -345,6 +462,12 @@ void ACMCombatSoldier::UpdateCombat()
 		UE_LOG(LogTemp, Warning,
 			TEXT("CM combat soldier %s has no AIController; confirm Auto Possess AI is Placed in World or Spawned."),
 			*GetName());
+	}
+
+	// An assigned squad directive supersedes the independent chase policy.
+	if (UpdateOrderedCombat(AI))
+	{
+		return;
 	}
 
 	ACharacter* Target = FindClosestHostile();
