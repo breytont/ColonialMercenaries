@@ -7,6 +7,7 @@
 #include "CMFactionOutpost.generated.h"
 
 class ACMCombatSoldier;
+class ACharacter;
 class FLifetimeProperty;
 class UArrowComponent;
 class USceneComponent;
@@ -200,6 +201,22 @@ protected:
 		meta=(ClampMin="0.0"))
 	float WithdrawalBackOffset = 350.0f;
 
+	/** Maximum distance from the outpost at which a reported attacker may
+	 * trigger a squad response. Supporting soldiers stay inside this area.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Defense",
+		meta=(ClampMin="500.0", UIMin="1000.0"))
+	float DefensiveAssistRadius = 1900.0f;
+
+	/** Keep a confirmed contact briefly while riflemen reposition for LOS. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Defense",
+		meta=(ClampMin="0.0", UIMin="2.0"))
+	float DefensiveContactMemorySeconds = 4.0f;
+
+	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
+	bool bDefensiveContactActive = false;
+
 	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
 	ECMOutpostSquadPhase SquadPhase = ECMOutpostSquadPhase::Assembly;
@@ -222,6 +239,8 @@ private:
 	float NextReinforcementTime = 0.0f;
 	float PhaseStartedAt = 0.0f;
 	ECMOutpostPosture CurrentPosture = ECMOutpostPosture::Assault;
+	TWeakObjectPtr<ACharacter> SharedDefenseContact;
+	float DefenseContactExpiresAt = 0.0f;
 
 	/** Authority only. Weak references do not prolong soldier lifetime. */
 	TArray<TWeakObjectPtr<ACMCombatSoldier>> FieldedSoldiers;
