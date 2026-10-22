@@ -2,6 +2,9 @@
 #include "Animation/CMRifleAnimInstance.h"
 
 #include "ColonialMercenariesCharacter.h"
+#include "Combat/CMCombatSoldier.h"
+#include "Combat/CMHealthComponent.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 void UCMRifleAnimInstance::NativeInitializeAnimation()
@@ -12,7 +15,7 @@ void UCMRifleAnimInstance::NativeInitializeAnimation()
 
 void UCMRifleAnimInstance::RefreshCharacter()
 {
-	CachedCharacter = Cast<AColonialMercenariesCharacter>(TryGetPawnOwner());
+	CachedCharacter = Cast<ACharacter>(TryGetPawnOwner());
 }
 
 void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -24,7 +27,7 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		RefreshCharacter();
 	}
 
-	const AColonialMercenariesCharacter* Character = CachedCharacter.Get();
+	const ACharacter* Character = CachedCharacter.Get();
 	if (!IsValid(Character))
 	{
 		CMIsAiming = false;
@@ -37,11 +40,6 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
 		return;
 	}
-
-	// Offset stays fixed relative to hand_r, even when animation rotates
-	// the arm. The Two Bone IK node solves the left arm within this pose.
-	CMLeftHandGripInRightHandSpace =
-		Character->GetPrototypeRifleSupportGripInRightHandSpace();
 
 	const FVector Velocity = Character->GetVelocity();
 	const FVector PlanarVelocity(Velocity.X, Velocity.Y, 0.0f);
@@ -62,15 +60,39 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	const UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
 	CMIsInAir = IsValid(Movement) && Movement->IsFalling();
 
-	CMIsAiming = Character->IsAiming();
+	// The same authored AnimGraph and left-hand Two Bone IK can now be
+	// used by the player and the factions' combat soldiers. The player
+	// continues to drive its own RMB aim pose and full view rotation.
+	FRotator AimRotation = Character->GetBaseAimRotation();
+	if (const AColonialMercenariesCharacter* PlayerCharacter =
+		Cast<AColonialMercenariesCharacter>(Character))
+	{
+		CMIsAiming = PlayerCharacter->IsAiming();
+		CMLeftHandGripInRightHandSpace =
+			PlayerCharacter->GetPrototypeRifleSupportGripInRightHandSpace();
+	}
+	else if (const ACMCombatSoldier* Soldier = Cast<ACMCombatSoldier>(Character))
+	{
+		// Infantry carries its rifle at the ready during movement and combat.
+		// Its server-aimed orientation is replicated for correct pitch on
+		// non-owning clients, whose AIControllers do not exist locally.
+		const UCMHealthComponent* Health = Soldier->GetHealthComponent();
+		CMIsAiming = !IsValid(Health) || !Health->IsDead();
+		CMLeftHandGripInRightHandSpace =
+			Soldier->GetPrototypeRifleSupportGripInRightHandSpace();
+		AimRotation = Soldier->GetCombatAimRotation();
+	}
+	else
+	{
+		CMIsAiming = false;
+		CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
+	}
+
 	CMRifleAimAlpha = FMath::FInterpTo(
 		CMRifleAimAlpha, CMIsAiming ? 1.0f : 0.0f,
 		FMath::Max(DeltaSeconds, 0.0f),
 		FMath::Max(AimPoseBlendSpeed, 0.1f));
 
-	// GetBaseAimRotation works with both locally controlled players and
-	// simulated proxies (using Unreal's replicated remote view pitch).
-	const FRotator AimRotation = Character->GetBaseAimRotation();
 	CMAimPitch = FMath::Clamp(
 		FRotator::NormalizeAxis(AimRotation.Pitch), -90.0f, 90.0f);
 	CMAimYaw = FMath::FindDeltaAngleDegrees(

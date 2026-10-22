@@ -6,10 +6,17 @@
 #include "Combat/CMHealthComponent.h"
 #include "ColonialMercenariesCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SceneComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Sound/SoundBase.h"
+#include "Sound/SoundAttenuation.h"
+#include "Net/UnrealNetwork.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
 #include "Engine/OverlapResult.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -46,11 +53,117 @@ ACMCombatSoldier::ACMCombatSoldier()
 	BodyVisual->SetRelativeLocation(FVector(0.0f, 0.0f, -8.0f));
 	BodyVisual->SetRelativeScale3D(FVector(0.5f, 0.5f, 1.6f));
 
-	// The simple cube is an engine asset, not an imported marketplace asset.
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	// The stock cube is retained only as an asset-loading fallback.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(
+		TEXT("/Engine/BasicShapes/Cube.Cube"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(
+		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	if (Cube.Succeeded())
 	{
 		BodyVisual->SetStaticMesh(Cube.Object);
+	}
+
+	// Existing project mannequin and rifle Animation Blueprint are shared
+	// with the player. Both can be overridden by a derived infantry BP.
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> MannyMesh(
+		TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));
+	static ConstructorHelpers::FClassFinder<UAnimInstance> RifleAnimBP(
+		TEXT("/Game/ColonialMercenaries/Animation/ABP_CM_Rifle"));
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> RifleFireMontage(
+		TEXT("/Game/ColonialMercenaries/Animation/AM_CM_RifleFire.AM_CM_RifleFire"));
+
+	if (MannyMesh.Succeeded())
+	{
+		GetMesh()->SetSkeletalMeshAsset(MannyMesh.Object);
+		GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -90.0f));
+		GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
+		GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		BodyVisual->SetVisibility(false);
+	}
+	if (RifleAnimBP.Succeeded())
+	{
+		GetMesh()->SetAnimInstanceClass(RifleAnimBP.Class);
+	}
+	if (RifleFireMontage.Succeeded())
+	{
+		FireMontage = RifleFireMontage.Object;
+	}
+
+	// These audio assets are already part of the repo and are temporary
+	// until soldiers and players share configurable weapon presentation.
+	static ConstructorHelpers::FObjectFinder<USoundBase> PrototypeGunshot(
+		TEXT("/Game/ColonialMercenaries/Audio/Gunshot_Prototype.Gunshot_Prototype"));
+	static ConstructorHelpers::FObjectFinder<USoundAttenuation> PrototypeAttenuation(
+		TEXT("/Game/ColonialMercenaries/Audio/ATT_CM_Gunshot.ATT_CM_Gunshot"));
+	if (PrototypeGunshot.Succeeded())
+	{
+		GunshotSound = PrototypeGunshot.Object;
+	}
+	if (PrototypeAttenuation.Succeeded())
+	{
+		GunshotAttenuation = PrototypeAttenuation.Object;
+	}
+
+	// The player and the NPCs use compatible hand_r attachments and
+	// left-hand support IK. Meshes do not influence hit detection or cover.
+	PrototypeRifleRoot = CreateDefaultSubobject<USceneComponent>(TEXT("InfantryRifleRoot"));
+	PrototypeRifleRoot->SetupAttachment(GetMesh(), TEXT("hand_r"));
+	// Match the player's calibrated BP_ThirdPersonCharacter rifle-root
+	// attachment. Unreal Details displays Rotation as X=Roll, Y=Pitch,
+	// Z=Yaw, while FRotator's constructor expects (Pitch, Yaw, Roll).
+	PrototypeRifleRoot->SetRelativeLocation(
+		FVector(-19.90523f, 6.200215f, 5.865171f));
+	PrototypeRifleRoot->SetRelativeRotation(
+		FRotator(-11.468771f, 173.741358f, 8.099865f));
+
+	PrototypeRifleSupportGrip = CreateDefaultSubobject<USceneComponent>(
+		TEXT("InfantryRifleSupportGrip"));
+	PrototypeRifleSupportGrip->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleSupportGrip->SetRelativeLocation(FVector(29.0f, 0.0f, -8.0f));
+
+	PrototypeRifleMuzzle = CreateDefaultSubobject<USceneComponent>(
+		TEXT("InfantryRifleMuzzle"));
+	PrototypeRifleMuzzle->SetupAttachment(PrototypeRifleRoot);
+	PrototypeRifleMuzzle->SetRelativeLocation(FVector(70.0f, 0.0f, 0.0f));
+
+	RifleReceiver = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("InfantryRifleReceiver"));
+	RifleReceiver->SetupAttachment(PrototypeRifleRoot);
+	RifleReceiver->SetRelativeLocation(FVector(10.0f, 0.0f, 0.0f));
+	RifleReceiver->SetRelativeScale3D(FVector(0.5f, 0.08f, 0.09f));
+
+	RifleBarrel = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("InfantryRifleBarrel"));
+	RifleBarrel->SetupAttachment(PrototypeRifleRoot);
+	RifleBarrel->SetRelativeLocation(FVector(48.0f, 0.0f, 0.0f));
+	RifleBarrel->SetRelativeRotation(FRotator(90.0f, 0.0f, 0.0f));
+	RifleBarrel->SetRelativeScale3D(FVector(0.03f, 0.03f, 0.43f));
+
+	RifleStock = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("InfantryRifleStock"));
+	RifleStock->SetupAttachment(PrototypeRifleRoot);
+	RifleStock->SetRelativeLocation(FVector(-24.0f, 0.0f, -2.0f));
+	RifleStock->SetRelativeScale3D(FVector(0.22f, 0.065f, 0.085f));
+
+	RifleGrip = CreateDefaultSubobject<UStaticMeshComponent>(
+		TEXT("InfantryRifleGrip"));
+	RifleGrip->SetupAttachment(PrototypeRifleRoot);
+	RifleGrip->SetRelativeLocation(FVector(2.0f, 0.0f, -12.0f));
+	RifleGrip->SetRelativeScale3D(FVector(0.075f, 0.055f, 0.15f));
+
+	for (UStaticMeshComponent* WeaponPart :
+		{ RifleReceiver.Get(), RifleStock.Get(), RifleGrip.Get() })
+	{
+		WeaponPart->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		if (Cube.Succeeded())
+		{
+			WeaponPart->SetStaticMesh(Cube.Object);
+		}
+	}
+	RifleBarrel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	if (Cylinder.Succeeded())
+	{
+		RifleBarrel->SetStaticMesh(Cylinder.Object);
 	}
 
 	FactionLabel = CreateDefaultSubobject<UTextRenderComponent>(TEXT("FactionLabel"));
@@ -60,9 +173,27 @@ ACMCombatSoldier::ACMCombatSoldier()
 	FactionLabel->SetWorldSize(42.0f);
 	FactionLabel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
-	// Placeholder skeletal mesh intentionally hidden; can be replaced with
-	// a Manny/Quinn character mesh through a derived Blueprint later.
-	GetMesh()->SetVisibility(false);
+	// The mannequin is now the primary infantry body, not the old cube.
+	GetMesh()->SetVisibility(MannyMesh.Succeeded());
+}
+
+FVector ACMCombatSoldier::GetPrototypeRifleSupportGripInRightHandSpace() const
+{
+	if (!IsValid(PrototypeRifleRoot) || !IsValid(PrototypeRifleSupportGrip))
+	{
+		return FVector::ZeroVector;
+	}
+
+	// Same bone-space convention as the player rifle's support-hand IK.
+	return PrototypeRifleRoot->GetRelativeTransform().TransformPosition(
+		PrototypeRifleSupportGrip->GetRelativeLocation());
+}
+
+void ACMCombatSoldier::GetLifetimeReplicatedProps(
+	TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ACMCombatSoldier, CombatAimRotation);
 }
 
 void ACMCombatSoldier::BeginPlay()
@@ -232,8 +363,21 @@ void ACMCombatSoldier::UpdateCombat()
 
 	if (DistanceSquared <= FMath::Square(WeaponRange) && bClearShot)
 	{
-		// An unobstructed target is within weapon range: hold position, fire.
+		// While firing, stop and face the actual target so upper-body rifle
+		// aim and the arm-mounted gun follow its position rather than the
+		// previous nav movement heading. NPC damage calculations remain in
+		// FireAt's authoritative center-of-mass trace for this milestone.
 		if (AI) { AI->StopMovement(); }
+		const FVector ShotOrigin =
+			GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+		const FVector AimAt =
+			Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+		const FVector Direction = (AimAt - ShotOrigin).GetSafeNormal();
+		if (!Direction.IsNearlyZero())
+		{
+			CombatAimRotation = Direction.Rotation();
+			SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+		}
 		bLastMoveWasBlockedApproach = false;
 
 		if (TimeNow >= NextShotTime)
@@ -325,8 +469,36 @@ void ACMCombatSoldier::FireAt(ACharacter* Target)
 
 void ACMCombatSoldier::MulticastDrawShot_Implementation(FVector Start, FVector End)
 {
-	// Temporary combat visualization, not the final tracer/VFX system.
+	// Continue showing the existing networked debug tracer. NPC shots are
+	// still resolved by the server, not driven by the montage.
 	DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false, 0.22f, 0, 2.0f);
+
+	// Prototype muzzle feedback is cosmetic only. The actual authoritative
+	// hit trace remains at the soldier's existing torso-height origin.
+	const FVector CosmeticMuzzle = IsValid(PrototypeRifleMuzzle)
+		? PrototypeRifleMuzzle->GetComponentLocation() : Start;
+	if (bDrawMuzzleFlash)
+	{
+		DrawDebugSphere(GetWorld(), CosmeticMuzzle, 9.0f, 8, FColor::Orange,
+			false, 0.09f, 0, 1.5f);
+	}
+	if (IsValid(GunshotSound))
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this, GunshotSound, CosmeticMuzzle, 1.0f, 1.0f,
+			0.0f, GunshotAttenuation);
+	}
+
+	// Montage runs cosmetically on each machine with a relevant soldier.
+	// The original DefaultSlot in ABP_CM_Rifle remains after the aim layer,
+	// allowing short upper-body recoil without interrupting locomotion.
+	if (IsValid(FireMontage) && IsValid(GetMesh()))
+	{
+		if (UAnimInstance* Anim = GetMesh()->GetAnimInstance())
+		{
+			Anim->Montage_Play(FireMontage, 1.0f);
+		}
+	}
 }
 
 void ACMCombatSoldier::HandleHealthChanged(float NewHealth, float NewMaxHealth)
@@ -343,6 +515,11 @@ void ACMCombatSoldier::HandleDeath()
 	GetWorldTimerManager().ClearTimer(DecisionTimerHandle);
 	BodyVisual->SetVisibility(false);
 	FactionLabel->SetVisibility(false);
+	GetMesh()->SetVisibility(false);
+	if (IsValid(PrototypeRifleRoot))
+	{
+		PrototypeRifleRoot->SetVisibility(false, true);
+	}
 	SetActorEnableCollision(false);
 
 	if (HasAuthority())

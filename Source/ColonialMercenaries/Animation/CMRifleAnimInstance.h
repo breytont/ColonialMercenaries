@@ -6,7 +6,7 @@
 #include "CMRifleAnimInstance.generated.h"
 
 /**
- * Read-only bridge from the networked Colonial Mercenaries character to
+ * Read-only bridge from the networked Colonial Mercenaries characters to
  * animation Blueprints. Weapon pose authoring stays in AnimGraph assets.
  *
  * No world-level scans, networking RPCs, or actor Tick. Unreal updates
@@ -63,7 +63,8 @@ public:
 
 private:
 	/** Not persisted: refreshed if animation ownership changes. */
-	TWeakObjectPtr<class AColonialMercenariesCharacter> CachedCharacter;
+	// Compatible with both playable mercenaries and humanoid faction infantry.
+	TWeakObjectPtr<class ACharacter> CachedCharacter;
 
 	void RefreshCharacter();
 };
