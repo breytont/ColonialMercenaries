@@ -121,7 +121,7 @@ bool ACMFactionOutpost::AddReserves(int32 NumberOfSoldiers)
 	}
 
 	const int32 OldReserve = ReserveRemaining;
-	ReserveRemaining = FMath::Clamp(ReserveRemaining + NumberOfSoldiers, 0, 1000);
+	ReserveRemaining = FMath::Clamp(ReserveRemaining + FMath::Min(NumberOfSoldiers, 1000), 0, 1000);
 	if (ReserveRemaining == OldReserve)
 	{
 		return false;
