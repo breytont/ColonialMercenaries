@@ -3,6 +3,7 @@
 
 #include "AIController.h"
 #include "Combat/CMFactionComponent.h"
+#include "Combat/CMCombatTactics.h"
 #include "Combat/CMHealthComponent.h"
 #include "ColonialMercenariesCharacter.h"
 #include "Components/CapsuleComponent.h"
@@ -21,6 +22,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/DamageType.h"
 #include "Kismet/GameplayStatics.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -46,6 +48,7 @@ ACMCombatSoldier::ACMCombatSoldier()
 
 	FactionComponent = CreateDefaultSubobject<UCMFactionComponent>(TEXT("Faction"));
 	HealthComponent = CreateDefaultSubobject<UCMHealthComponent>(TEXT("Health"));
+	CombatTacticsClass = UCMRiflemanCombatTactics::StaticClass();
 
 	BodyVisual = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PrototypeBody"));
 	BodyVisual->SetupAttachment(GetCapsuleComponent());
@@ -214,179 +217,264 @@ void ACMCombatSoldier::SetSquadOrder(
 
 	SquadOrder = NewOrder;
 	SquadPosition = AssignedPosition;
+	bTacticalMoveActive = false;
 	CurrentTarget.Reset();
 	bSquadMoveDirty = true;
 	NextMoveRequestTime = 0.0f;
 	ForceNetUpdate();
 }
 
-void ACMCombatSoldier::SetSharedDefenseContact(
-	ACharacter* Threat, FVector NewDefenseCenter, float NewAssistRadius)
+void ACMCombatSoldier::SetSharedSquadContact(
+	ACharacter* Threat, bool bConfirmedAttacker,
+	FVector NewDutyCenter, float NewAssistRadius)
 {
-	if (!HasAuthority())
+	if (!HasAuthority()) { return; }
+	SharedSquadTarget = Threat;
+	bSharedConfirmedAttacker = bConfirmedAttacker;
+	DutyCenter = NewDutyCenter;
+	SquadAssistRadius = FMath::Max(NewAssistRadius, 150.0f);
+}
+
+bool ACMCombatSoldier::IsThreatValid(
+	ACharacter* Candidate, bool bConfirmedAttacker) const
+{
+	if (!IsValid(Candidate) || Candidate == this || !IsValid(FactionComponent))
+	{
+		return false;
+	}
+	const UCMHealthComponent* Health =
+		Candidate->FindComponentByClass<UCMHealthComponent>();
+	const UCMFactionComponent* OtherFaction =
+		Candidate->FindComponentByClass<UCMFactionComponent>();
+	if (!IsValid(Health) || Health->IsDead())
+	{
+		return false;
+	}
+	if (FactionComponent->IsHostileTo(OtherFaction))
+	{
+		return true;
+	}
+	// An unaligned mercenary/player who deliberately shoots a faction
+	// soldier is a legitimate self-defense threat. Never turn an accidental
+	// same-faction hit into a squad-wide friendly-fire vendetta.
+	return bConfirmedAttacker
+		&& (!IsValid(OtherFaction) || !OtherFaction->GetFactionId().IsValid());
+}
+
+ACharacter* ACMCombatSoldier::GetReportedThreat(bool& bOutConfirmedAttacker) const
+{
+	bOutConfirmedAttacker = false;
+	if (!HasAuthority() || !GetWorld() || HealthComponent->IsDead())
+	{
+		return nullptr;
+	}
+	ACharacter* Attacker = RecentAttacker.Get();
+	if (GetWorld()->GetTimeSeconds() < AttackerMemoryExpiresAt
+		&& IsThreatValid(Attacker, true))
+	{
+		bOutConfirmedAttacker = bAttackerWasUnaligned;
+		return Attacker;
+	}
+	ACharacter* Engaged = CurrentTarget.Get();
+	return IsThreatValid(Engaged, bSharedConfirmedAttacker)
+		? Engaged : nullptr;
+}
+
+void ACMCombatSoldier::HandleIncomingDamage(
+	AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+	AController* InstigatedBy, AActor* DamageCauser)
+{
+	if (!HasAuthority() || Damage <= 0.0f || !GetWorld())
 	{
 		return;
 	}
 
-	// Shared awareness is local authority-only AI state. The outpost
-	// validates the contact and supplies the defense perimeter.
-	SharedDefenseTarget = Threat;
-	DefenseCenter = NewDefenseCenter;
-	DefenseAssistRadius = FMath::Max(NewAssistRadius, 100.0f);
+	APawn* ShooterPawn = IsValid(InstigatedBy) ? InstigatedBy->GetPawn() : nullptr;
+	if (!IsValid(ShooterPawn) && IsValid(DamageCauser))
+	{
+		ShooterPawn = DamageCauser->GetInstigator();
+	}
+	ACharacter* Shooter = Cast<ACharacter>(ShooterPawn);
+	if (!IsValid(Shooter))
+	{
+		Shooter = Cast<ACharacter>(DamageCauser);
+	}
+	if (!IsThreatValid(Shooter, true))
+	{
+		// Damage from the environment or an unidentified shooter cannot
+		// safely establish an actor target. Health damage still applies.
+		return;
+	}
+	const UCMFactionComponent* ShooterFaction =
+		Shooter->FindComponentByClass<UCMFactionComponent>();
+	bAttackerWasUnaligned = !IsValid(ShooterFaction)
+		|| !ShooterFaction->GetFactionId().IsValid();
+	RecentAttacker = Shooter;
+	AttackerMemoryExpiresAt = GetWorld()->GetTimeSeconds() + 8.0f;
+	// The next normal server decision timer reacts without any client RPC.
+	UE_LOG(LogTemp, Verbose, TEXT("CM soldier %s hit by %s; squad threat reported."),
+		*GetName(), *Shooter->GetName());
+}
+
+void ACMCombatSoldier::AimAndFireAt(
+	ACharacter* Target, AAIController* AI, float Now)
+{
+	if (!IsValid(Target)) { return; }
+	if (AI) { AI->StopMovement(); }
+	bSquadMoveDirty = true;
+	bWasAssisting = true;
+	CurrentTarget = Target;
+
+	const FVector Origin = GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+	const FVector Point = Target->GetActorLocation()
+		+ FVector(0.0f, 0.0f, AimHeight);
+	const FVector Direction = (Point - Origin).GetSafeNormal();
+	if (!Direction.IsNearlyZero())
+	{
+		CombatAimRotation = Direction.Rotation();
+		SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+	}
+	if (Now >= NextShotTime)
+	{
+		FireAt(Target);
+		NextShotTime = Now + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
+	}
+}
+
+bool ACMCombatSoldier::TryTacticalMove(
+	ACharacter* Target, bool bHasShot, AAIController* AI,
+	FVector Center, float Radius, float Now)
+{
+	if (!IsValid(Target) || !AI || !IsValid(CombatTactics))
+	{
+		return false;
+	}
+
+	if (bTacticalMoveActive)
+	{
+		if (TacticalMoveTarget.Get() != Target
+			|| Now >= TacticalMoveExpiresAt
+			|| FVector::DistSquared2D(GetActorLocation(), TacticalGoal)
+				<= FMath::Square(120.0f))
+		{
+			bTacticalMoveActive = false;
+			NextTacticalMoveAt = Now + CombatTactics->GetRepositionCooldown();
+		}
+		else
+		{
+			if (AI->GetMoveStatus() != EPathFollowingStatus::Moving
+				&& Now >= NextMoveRequestTime)
+			{
+				AI->MoveToLocation(TacticalGoal, 85.0f);
+				NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
+			}
+			return true;
+		}
+	}
+	if (Now < NextTacticalMoveAt
+		|| !CombatTactics->WantsReposition(
+			bHasShot, Now - LastTacticalMoveAt,
+			FVector::Dist2D(GetActorLocation(), Target->GetActorLocation()),
+			WeaponRange))
+	{
+		return false;
+	}
+
+	const FVector Goal = CombatTactics->ChoosePosition(
+		GetActorLocation(), Target->GetActorLocation(),
+		Center, Radius, WeaponRange, TacticalSideSeed, bHasShot);
+	LastTacticalMoveAt = Now;
+	NextTacticalMoveAt = Now + CombatTactics->GetRepositionCooldown();
+	TacticalSideSeed++;
+	if (FVector::DistSquared2D(Goal, GetActorLocation()) < FMath::Square(135.0f))
+	{
+		return false;
+	}
+	const EPathFollowingRequestResult::Type Result =
+		AI->MoveToLocation(Goal, 85.0f);
+	if (Result != EPathFollowingRequestResult::RequestSuccessful)
+	{
+		return false;
+	}
+	TacticalGoal = Goal;
+	TacticalMoveTarget = Target;
+	TacticalMoveExpiresAt = Now + 3.5f;
+	bTacticalMoveActive = true;
+	bWasAssisting = true;
+	NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
+	return true;
 }
 
 bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 {
-	if (SquadOrder == ECMSquadOrder::Independent)
-	{
-		return false;
-	}
-	if (!AI || !GetWorld())
-	{
-		return true;
-	}
+	if (SquadOrder == ECMSquadOrder::Independent) { return false; }
+	if (!AI || !GetWorld()) { return true; }
 
 	const float Now = GetWorld()->GetTimeSeconds();
+	const bool bMayReact = SquadOrder != ECMSquadOrder::Disengage;
+	const bool bMayAssist = SquadOrder == ECMSquadOrder::Advance
+		|| SquadOrder == ECMSquadOrder::Defend;
+	ACharacter* Target = nullptr;
+	bool bProvoked = false;
 
-	// Assemble and withdraw take priority over fighting. During advance
-	// or defend, each member holds its assigned slot unless an enemy is
-	// within *weapon* range and directly visible. This prevents the old
-	// 6500cm pursuit logic from scattering the formation.
-	if (SquadOrder == ECMSquadOrder::Advance
-		|| SquadOrder == ECMSquadOrder::Defend)
+	if (bMayReact)
 	{
-		ACharacter* Target = FindClosestHostile(WeaponRange);
-		if (IsValid(Target)
-			&& FVector::DistSquared(GetActorLocation(), Target->GetActorLocation())
-				<= FMath::Square(WeaponRange)
-			&& HasLineOfFire(Target))
+		bool bReportedAggressor = false;
+		ACharacter* Reported = GetReportedThreat(bReportedAggressor);
+		if (IsValid(Reported)
+			&& FVector::DistSquared2D(Reported->GetActorLocation(), DutyCenter)
+				<= FMath::Square(SquadAssistRadius))
 		{
-			AI->StopMovement();
-			bSquadMoveDirty = true;
-			CurrentTarget = Target;
-
-			const FVector ShotOrigin =
-				GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
-			const FVector AimAt =
-				Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
-			const FVector Direction = (AimAt - ShotOrigin).GetSafeNormal();
-			if (!Direction.IsNearlyZero())
+			Target = Reported;
+			bProvoked = bReportedAggressor;
+		}
+		if (!IsValid(Target) && bMayAssist)
+		{
+			Target = FindClosestHostile(WeaponRange);
+		}
+		if (!IsValid(Target) && IsThreatValid(
+			SharedSquadTarget.Get(), bSharedConfirmedAttacker))
+		{
+			ACharacter* Shared = SharedSquadTarget.Get();
+			if (FVector::DistSquared2D(
+				Shared->GetActorLocation(), DutyCenter)
+				<= FMath::Square(SquadAssistRadius))
 			{
-				CombatAimRotation = Direction.Rotation();
-				SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+				Target = Shared;
+				bProvoked = bSharedConfirmedAttacker;
 			}
+		}
 
-			if (Now >= NextShotTime)
+		if (IsThreatValid(Target, bProvoked))
+		{
+			const float DistanceSq = FVector::DistSquared(
+				GetActorLocation(), Target->GetActorLocation());
+			const bool bCanShoot = DistanceSq <= FMath::Square(WeaponRange)
+				&& HasLineOfFire(Target);
+			const bool bIsDirectlyThreatened =
+				RecentAttacker.Get() == Target && Now < AttackerMemoryExpiresAt;
+			if (bMayAssist || bIsDirectlyThreatened)
 			{
-				FireAt(Target);
-				NextShotTime = Now + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
+				CurrentTarget = Target;
+				if (TryTacticalMove(Target, bCanShoot, AI,
+					DutyCenter, SquadAssistRadius, Now))
+				{
+					return true;
+				}
+				if (bCanShoot)
+				{
+					AimAndFireAt(Target, AI, Now);
+					return true;
+				}
+				// With no clear shot, alternate limited movements toward the
+				// squad contact. A later decision resumes assigned orders.
 			}
-			return true;
 		}
 	}
 
 	CurrentTarget.Reset();
 	bLastMoveWasBlockedApproach = false;
-
-	// Defenders assist a squadmate's verified contact, even when the
-	// enemy is outside their own weapon range or behind nearby cover.
-	// Orders are still confined to a bounded zone around the outpost.
-	if (SquadOrder == ECMSquadOrder::Defend)
-	{
-		ACharacter* Contact = SharedDefenseTarget.Get();
-		const UCMHealthComponent* ContactHealth =
-			IsValid(Contact) ? Contact->FindComponentByClass<UCMHealthComponent>() : nullptr;
-		const UCMFactionComponent* ContactFaction =
-			IsValid(Contact) ? Contact->FindComponentByClass<UCMFactionComponent>() : nullptr;
-		if (IsValid(Contact) && IsValid(ContactHealth)
-			&& !ContactHealth->IsDead()
-			&& FactionComponent->IsHostileTo(ContactFaction)
-			&& FVector::DistSquared2D(
-				Contact->GetActorLocation(), DefenseCenter)
-				<= FMath::Square(DefenseAssistRadius))
-		{
-			const FVector EnemyPosition = Contact->GetActorLocation();
-			const FVector ToEnemy = EnemyPosition - GetActorLocation();
-			const bool bVisible = HasLineOfFire(Contact);
-			const float DistanceSq = FVector::DistSquared(
-				GetActorLocation(), EnemyPosition);
-
-			if (DistanceSq <= FMath::Square(WeaponRange) && bVisible)
-			{
-				AI->StopMovement();
-				bSquadMoveDirty = true;
-				bWasAssisting = true;
-				CurrentTarget = Contact;
-
-				const FVector AimFrom = GetActorLocation()
-					+ FVector(0.0f, 0.0f, AimHeight);
-				const FVector AimAt = EnemyPosition
-					+ FVector(0.0f, 0.0f, AimHeight);
-				const FVector Direction = (AimAt - AimFrom).GetSafeNormal();
-				if (!Direction.IsNearlyZero())
-				{
-					CombatAimRotation = Direction.Rotation();
-					SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
-				}
-				if (Now >= NextShotTime)
-				{
-					FireAt(Contact);
-					NextShotTime = Now + 1.0f / FMath::Max(ShotsPerSecond, 0.1f);
-				}
-				return true;
-			}
-
-			// Each rifleman chooses a standoff point along its own approach
-			// direction. Different initial slots yield different approach
-			// angles rather than everyone sharing a single MoveToActor goal.
-			// If visibility is blocked, close further to seek a firing lane.
-			const float StandOff = bVisible
-				? WeaponRange * 0.75f : WeaponRange * 0.4f;
-			FVector Goal = EnemyPosition
-				- ToEnemy.GetSafeNormal2D() * StandOff;
-			FVector FromBase = Goal - DefenseCenter;
-			const float MaxGoalDistance = FMath::Max(
-				DefenseAssistRadius - 150.0f, 100.0f);
-			const float HorizontalDistance = FromBase.Size2D();
-			if (HorizontalDistance > MaxGoalDistance)
-			{
-				Goal = DefenseCenter
-					+ FromBase.GetSafeNormal2D() * MaxGoalDistance
-					+ FVector(0.0f, 0.0f, FromBase.Z);
-			}
-
-			const bool bGoalChanged =
-				FVector::DistSquared2D(Goal, LastAssistDestination)
-				> FMath::Square(175.0f);
-			if (!bWasAssisting || bGoalChanged
-				|| (AI->GetMoveStatus() != EPathFollowingStatus::Moving
-					&& Now >= NextMoveRequestTime))
-			{
-				const EPathFollowingRequestResult::Type Result =
-					AI->MoveToLocation(Goal, 100.0f);
-				if (Result == EPathFollowingRequestResult::Failed
-					&& !bReportedMoveFailure)
-				{
-					UE_LOG(LogTemp, Warning,
-						TEXT("CM soldier %s could not move to defensive support position."),
-						*GetName());
-					bReportedMoveFailure = true;
-				}
-				else if (Result != EPathFollowingRequestResult::Failed)
-				{
-					bReportedMoveFailure = false;
-				}
-				NextMoveRequestTime = Now
-					+ FMath::Max(PathRetryInterval, 0.1f);
-				LastAssistDestination = Goal;
-				bWasAssisting = true;
-				bSquadMoveDirty = true;
-			}
-			return true;
-		}
-	}
-
-	// When the outpost loses contact, return to the assigned guard slot.
+	bTacticalMoveActive = false;
 	if (bWasAssisting)
 	{
 		bWasAssisting = false;
@@ -409,7 +497,6 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 		bSquadMoveDirty = false;
 		return true;
 	}
-
 	if (bSquadMoveDirty
 		|| (AI->GetMoveStatus() != EPathFollowingStatus::Moving
 			&& Now >= NextMoveRequestTime))
@@ -421,7 +508,7 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 		if (Result == EPathFollowingRequestResult::Failed && !bReportedMoveFailure)
 		{
 			UE_LOG(LogTemp, Warning,
-				TEXT("CM soldier %s cannot navigate to squad %s position. Check connected NavMesh."),
+				TEXT("CM soldier %s cannot navigate to squad %s position. Check NavMesh."),
 				*GetName(), *UEnum::GetValueAsString(SquadOrder));
 			bReportedMoveFailure = true;
 		}
@@ -430,7 +517,6 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 			bReportedMoveFailure = false;
 		}
 	}
-
 	return true;
 }
 
@@ -439,6 +525,17 @@ void ACMCombatSoldier::BeginPlay()
 	Super::BeginPlay();
 
 	GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+	if (HasAuthority())
+	{
+		CombatTactics = NewObject<UCMCombatTactics>(
+			this, CombatTacticsClass ? CombatTacticsClass.Get()
+				: UCMRiflemanCombatTactics::StaticClass());
+		if (GetWorld())
+		{
+			LastTacticalMoveAt = GetWorld()->GetTimeSeconds();
+		}
+		OnTakeAnyDamage.AddDynamic(this, &ACMCombatSoldier::HandleIncomingDamage);
+	}
 	HealthComponent->OnDied.AddDynamic(this, &ACMCombatSoldier::HandleDeath);
 	HealthComponent->OnHealthChanged.AddDynamic(this, &ACMCombatSoldier::HandleHealthChanged);
 
@@ -595,6 +692,12 @@ void ACMCombatSoldier::UpdateCombat()
 	}
 
 	ACharacter* Target = FindClosestHostile();
+	if (!IsValid(Target) && GetWorld()
+		&& GetWorld()->GetTimeSeconds() < AttackerMemoryExpiresAt
+		&& IsThreatValid(RecentAttacker.Get(), true))
+	{
+		Target = RecentAttacker.Get();
+	}
 	if (!IsValid(Target))
 	{
 		CurrentTarget.Reset();
