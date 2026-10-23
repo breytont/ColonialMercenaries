@@ -213,6 +213,11 @@ Changes to validate:
   reposition is cooling down.
 - Outpost-reported threats are prioritized over unrelated opportunistic
   nearby targets.
+- The outpost now **prioritizes a direct damage report** over a squadmate's
+  visual contact. This matters during a Red-vs-Blue skirmish: getting hit
+  by the player should override a lower-priority report of Blue infantry
+  from the first member scanned. Changes of shared target are now logged
+  as `CM SQUAD TARGET`, even when the squad was already in CONTACT state.
 - Defense deliberately **does not** allow unbounded pursuit. An attacker
   outside the 1,900 cm defense leash may not be shootable by a rifleman
   with 950 cm weapon range; visible response/contact is expected, but
