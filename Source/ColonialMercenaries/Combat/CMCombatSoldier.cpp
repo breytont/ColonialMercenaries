@@ -314,8 +314,17 @@ void ACMCombatSoldier::HandleIncomingDamage(
 	}
 	if (!IsThreatValid(Shooter, true))
 	{
-		// Damage from the environment or an unidentified shooter cannot
-		// safely establish an actor target. Health damage still applies.
+		// Damaging the actor alone does not guarantee an attributable
+		// opponent: we intentionally exclude environmental hits and
+		// same-team friendly fire. Log the FIRST rejection per NPC.
+		if (!bLoggedFailedDamageAttribution)
+		{
+			bLoggedFailedDamageAttribution = true;
+			UE_LOG(LogTemp, Warning,
+				TEXT("CM HIT UNATTRIBUTED: %s took damage, instigator=%s, causer=%s, shooter=%s. Verify shooter faction/health."),
+				*GetName(), *GetNameSafe(InstigatedBy),
+				*GetNameSafe(DamageCauser), *GetNameSafe(Shooter));
+		}
 		return;
 	}
 	const UCMFactionComponent* ShooterFaction =
