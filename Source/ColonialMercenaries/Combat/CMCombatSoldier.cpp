@@ -515,6 +515,25 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 				GetActorLocation(), Target->GetActorLocation());
 			const bool bCanShoot = DistanceSq <= FMath::Square(WeaponRange)
 				&& HasLineOfFire(Target);
+			if (!bCanShoot)
+			{
+				const bool bOutOfRange = DistanceSq > FMath::Square(WeaponRange);
+				if (LastLoggedFiringHoldTarget.Get() != Target
+					|| bLastFiringHoldWasOutOfRange != bOutOfRange)
+				{
+					UE_LOG(LogTemp, Display,
+						TEXT("CM SHOT HELD: %s targeting %s, %s (distance %.0f / range %.0f cm). Repositioning within assigned duty area."),
+						*GetName(), *Target->GetName(),
+						bOutOfRange ? TEXT("OUT OF RANGE") : TEXT("NO LINE OF FIRE"),
+						FMath::Sqrt(DistanceSq), WeaponRange);
+					LastLoggedFiringHoldTarget = Target;
+					bLastFiringHoldWasOutOfRange = bOutOfRange;
+				}
+			}
+			else
+			{
+				LastLoggedFiringHoldTarget.Reset();
+			}
 			const bool bIsDirectlyThreatened =
 				RecentAttacker.Get() == Target && Now < AttackerMemoryExpiresAt;
 			// Valid shared reports are actionable for any non-retreat order.
