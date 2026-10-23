@@ -272,7 +272,10 @@ ACharacter* ACMCombatSoldier::GetReportedThreat(bool& bOutConfirmedAttacker) con
 	if (GetWorld()->GetTimeSeconds() < AttackerMemoryExpiresAt
 		&& IsThreatValid(Attacker, true))
 	{
-		bOutConfirmedAttacker = bAttackerWasUnaligned;
+		// Any verified damage source can alert the squad even at long
+		// range. The outpost separately checks faction hostility, while
+		// the soldier's navigation remains leashed to its own duty area.
+		bOutConfirmedAttacker = true;
 		return Attacker;
 	}
 	// Only broadcast a visible engagement, not a target that we merely
@@ -319,11 +322,16 @@ void ACMCombatSoldier::HandleIncomingDamage(
 		Shooter->FindComponentByClass<UCMFactionComponent>();
 	bAttackerWasUnaligned = !IsValid(ShooterFaction)
 		|| !ShooterFaction->GetFactionId().IsValid();
+	const float Now = GetWorld()->GetTimeSeconds();
+	if (RecentAttacker.Get() != Shooter || Now >= AttackerMemoryExpiresAt)
+	{
+		UE_LOG(LogTemp, Display,
+			TEXT("CM HIT ALERT: %s was damaged by %s (%s). Reporting threat to squad."),
+			*GetName(), *Shooter->GetName(),
+			bAttackerWasUnaligned ? TEXT("unaligned attacker") : TEXT("opposing faction"));
+	}
 	RecentAttacker = Shooter;
-	AttackerMemoryExpiresAt = GetWorld()->GetTimeSeconds() + 8.0f;
-	// The next normal server decision timer reacts without any client RPC.
-	UE_LOG(LogTemp, Verbose, TEXT("CM soldier %s hit by %s; squad threat reported."),
-		*GetName(), *Shooter->GetName());
+	AttackerMemoryExpiresAt = Now + 8.0f;
 }
 
 void ACMCombatSoldier::AimAndFireAt(
@@ -432,9 +440,9 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 	{
 		bool bReportedAggressor = false;
 		ACharacter* Reported = GetReportedThreat(bReportedAggressor);
-		if (IsValid(Reported)
-			&& FVector::DistSquared2D(Reported->GetActorLocation(), DutyCenter)
-				<= FMath::Square(SquadAssistRadius))
+		// The attacked soldier must react regardless of its attacker's
+		// distance. Squad leashes constrain movement, NOT awareness.
+		if (IsThreatValid(Reported, bReportedAggressor))
 		{
 			Target = Reported;
 			bProvoked = bReportedAggressor;
@@ -446,14 +454,10 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 		if (!IsValid(Target) && IsThreatValid(
 			SharedSquadTarget.Get(), bSharedConfirmedAttacker))
 		{
-			ACharacter* Shared = SharedSquadTarget.Get();
-			if (FVector::DistSquared2D(
-				Shared->GetActorLocation(), DutyCenter)
-				<= FMath::Square(SquadAssistRadius))
-			{
-				Target = Shared;
-				bProvoked = bSharedConfirmedAttacker;
-			}
+			// Awareness is independent from pursuing. The soldier can
+			// prepare a bounded response to an attacker beyond its post.
+			Target = SharedSquadTarget.Get();
+			bProvoked = bSharedConfirmedAttacker;
 		}
 
 		if (IsThreatValid(Target, bProvoked))
@@ -464,6 +468,7 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 				&& HasLineOfFire(Target);
 			const bool bIsDirectlyThreatened =
 				RecentAttacker.Get() == Target && Now < AttackerMemoryExpiresAt;
+			// Valid shared reports are actionable for any non-retreat order.
 			if (bMayAssist || bIsDirectlyThreatened)
 			{
 				CurrentTarget = Target;
@@ -477,8 +482,18 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 					AimAndFireAt(Target, AI, Now);
 					return true;
 				}
-				// With no clear shot, alternate limited movements toward the
-				// squad contact. A later decision resumes assigned orders.
+				// With no clear shot, stay alert and face the threat while
+				// waiting for the next reposition attempt. Do NOT clear
+				// target/return to guard duty until contact actually ends.
+				const FVector Direction =
+					(Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+				if (!Direction.IsNearlyZero())
+				{
+					CombatAimRotation = Direction.Rotation();
+					SetActorRotation(FRotator(0.0f, CombatAimRotation.Yaw, 0.0f));
+				}
+				bWasAssisting = true;
+				return true;
 			}
 		}
 	}
