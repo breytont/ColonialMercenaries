@@ -309,93 +309,105 @@ void ACMFactionOutpost::UpdateSquadOrders()
 		: SquadPhase == ECMOutpostSquadPhase::Defend ? ECMSquadOrder::Defend
 		: ECMSquadOrder::Advance;
 
-	if (SquadPhase == ECMOutpostSquadPhase::Defend)
+	// The SAME squad contact service runs regardless of which faction owns
+	// the base, and whether the detachment is assembling, assaulting or
+	// defending. Withdrawal takes priority and suppresses combat response.
+	if (SquadPhase != ECMOutpostSquadPhase::Retreat)
 	{
-		// A squadmate actually engaging an enemy reports that same target
-		// to the outpost. We check only this base's own small soldier list,
-		// not all NPCs across the world. No actor Tick or perception sweep.
 		ACharacter* NewContact = nullptr;
-		const float AssistRadius = FMath::Max(DefensiveAssistRadius, 500.0f);
+		bool bNewContactWasProvoked = false;
+		const float AlertRadius = FMath::Max(DefensiveAssistRadius, 500.0f);
 		for (const TWeakObjectPtr<ACMCombatSoldier>& Member : FieldedSoldiers)
 		{
 			const ACMCombatSoldier* Soldier = Member.Get();
-			ACharacter* Candidate = IsValid(Soldier)
-				? Soldier->GetEngagedTarget() : nullptr;
-			const UCMHealthComponent* ContactHealth =
-				IsValid(Candidate)
-					? Candidate->FindComponentByClass<UCMHealthComponent>()
-					: nullptr;
-			const UCMFactionComponent* CandidateFaction =
-				IsValid(Candidate)
-					? Candidate->FindComponentByClass<UCMFactionComponent>()
-					: nullptr;
-			const UCMFactionComponent* SoldierFaction =
-				IsValid(Soldier) ? Soldier->GetFactionComponent() : nullptr;
-			if (IsValid(Candidate) && IsValid(ContactHealth)
-				&& !ContactHealth->IsDead()
-				&& IsValid(SoldierFaction)
-				&& SoldierFaction->IsHostileTo(CandidateFaction)
-				&& FVector::DistSquared2D(
-					GetActorLocation(), Candidate->GetActorLocation())
-					<= FMath::Square(AssistRadius))
+			if (!IsValid(Soldier)) { continue; }
+
+			bool bConfirmedAttacker = false;
+			ACharacter* Candidate = Soldier->GetReportedThreat(bConfirmedAttacker);
+			const UCMHealthComponent* ContactHealth = IsValid(Candidate)
+				? Candidate->FindComponentByClass<UCMHealthComponent>() : nullptr;
+			const UCMFactionComponent* CandidateFaction = IsValid(Candidate)
+				? Candidate->FindComponentByClass<UCMFactionComponent>() : nullptr;
+			const UCMFactionComponent* SoldierFaction = Soldier->GetFactionComponent();
+			if (!IsValid(Candidate) || !IsValid(ContactHealth)
+				|| ContactHealth->IsDead() || !IsValid(SoldierFaction))
 			{
-				NewContact = Candidate;
-				break;
+				continue;
 			}
+			const bool bHostile = SoldierFaction->IsHostileTo(CandidateFaction);
+			const bool bUnalignedAggressor = bConfirmedAttacker
+				&& (!IsValid(CandidateFaction)
+					|| !CandidateFaction->GetFactionId().IsValid());
+			if (!(bHostile || bUnalignedAggressor))
+			{
+				continue;
+			}
+
+			// Alerts stay local to this squad. This is intentionally based
+			// on its reporting member, not on distance from the outpost;
+			// an advancing patrol can be kilometers from its original base.
+			if (FVector::DistSquared2D(
+				Soldier->GetActorLocation(), Candidate->GetActorLocation())
+				> FMath::Square(AlertRadius))
+			{
+				continue;
+			}
+			NewContact = Candidate;
+			bNewContactWasProvoked = bUnalignedAggressor;
+			break;
 		}
 
 		const float Now = GetWorld()->GetTimeSeconds();
 		if (IsValid(NewContact))
 		{
-			SharedDefenseContact = NewContact;
-			DefenseContactExpiresAt = Now
+			SharedSquadContact = NewContact;
+			bSharedContactWasProvoked = bNewContactWasProvoked;
+			SquadContactExpiresAt = Now
 				+ FMath::Max(DefensiveContactMemorySeconds, 0.0f);
 		}
 		else
 		{
-			ACharacter* Remembered = SharedDefenseContact.Get();
+			ACharacter* Remembered = SharedSquadContact.Get();
 			const UCMHealthComponent* Health = IsValid(Remembered)
 				? Remembered->FindComponentByClass<UCMHealthComponent>() : nullptr;
 			if (!IsValid(Remembered) || !IsValid(Health) || Health->IsDead()
-				|| Now >= DefenseContactExpiresAt
-				|| FVector::DistSquared2D(
-					GetActorLocation(), Remembered->GetActorLocation())
-					> FMath::Square(AssistRadius))
+				|| Now >= SquadContactExpiresAt)
 			{
-				SharedDefenseContact.Reset();
+				SharedSquadContact.Reset();
+				bSharedContactWasProvoked = false;
 			}
 		}
 	}
 	else
 	{
-		SharedDefenseContact.Reset();
-		DefenseContactExpiresAt = 0.0f;
+		SharedSquadContact.Reset();
+		bSharedContactWasProvoked = false;
+		SquadContactExpiresAt = 0.0f;
 	}
 
-	const bool bHasContact = IsValid(SharedDefenseContact.Get())
-		&& SquadPhase == ECMOutpostSquadPhase::Defend;
-	if (bDefensiveContactActive != bHasContact)
+	const bool bHasContact = IsValid(SharedSquadContact.Get())
+		&& SquadPhase != ECMOutpostSquadPhase::Retreat;
+	if (bSquadContactActive != bHasContact)
 	{
-		bDefensiveContactActive = bHasContact;
-		if (bHasContact)
-		{
-			UE_LOG(LogTemp, Log,
-				TEXT("CM outpost %s alerted squad to a nearby attacker."),
-				*GetName());
-		}
+		bSquadContactActive = bHasContact;
 		RefreshStatusLabel();
 		ForceNetUpdate();
 	}
 
 	for (int32 Index = 0; Index < FieldedSoldiers.Num(); ++Index)
 	{
-		if (ACMCombatSoldier* Soldier = FieldedSoldiers[Index].Get())
-		{
-			Soldier->SetSquadOrder(Order, GetSquadSlot(Index, SquadPhase));
-			Soldier->SetSharedDefenseContact(
-				bHasContact ? SharedDefenseContact.Get() : nullptr,
-				GetActorLocation(), FMath::Max(DefensiveAssistRadius, 500.0f));
-		}
+		ACMCombatSoldier* Soldier = FieldedSoldiers[Index].Get();
+		if (!IsValid(Soldier)) { continue; }
+		Soldier->SetSquadOrder(Order, GetSquadSlot(Index, SquadPhase));
+
+		// Defense stays inside the base perimeter; assault assistance is
+		// leashed to each member's objective slot. Orders still take priority.
+		const FVector Center = SquadPhase == ECMOutpostSquadPhase::Defend
+			? GetActorLocation() : GetSquadSlot(Index, SquadPhase);
+		Soldier->SetSharedSquadContact(
+			bHasContact ? SharedSquadContact.Get() : nullptr,
+			bSharedContactWasProvoked, Center,
+			FMath::Max(DefensiveAssistRadius, 500.0f));
 	}
 }
 
@@ -473,7 +485,10 @@ void ACMFactionOutpost::RefreshStatusLabel()
 		SquadPhase == ECMOutpostSquadPhase::Assembly ? TEXT("ASSEMBLING")
 		: SquadPhase == ECMOutpostSquadPhase::Advance ? TEXT("ADVANCING")
 		: SquadPhase == ECMOutpostSquadPhase::Retreat ? TEXT("WITHDRAWING")
-		: (bDefensiveContactActive ? TEXT("DEFENDING - CONTACT") : TEXT("DEFENDING"));
+		: TEXT("DEFENDING");
+	const FString PhaseStatus = bSquadContactActive
+		? FString::Printf(TEXT("%s - CONTACT"), PhaseText)
+		: FString(PhaseText);
 	FString Status = TEXT("Garrison ready");
 	if (ActiveGarrison < GarrisonLimit && ReserveRemaining <= 0)
 	{
@@ -487,7 +502,7 @@ void ACMFactionOutpost::RefreshStatusLabel()
 	StatusLabel->SetText(FText::FromString(FString::Printf(
 		TEXT("%s [%s]\nGarrison %d/%d  |  Reserve %d\n%s  |  %s"),
 		*OutpostName, *ShortFaction, ActiveGarrison, GarrisonLimit,
-		ReserveRemaining, PhaseText, *Status)));
+		ReserveRemaining, *PhaseStatus, *Status)));
 }
 
 void ACMFactionOutpost::OnRep_OutpostStatus()
@@ -504,5 +519,5 @@ void ACMFactionOutpost::GetLifetimeReplicatedProps(
 	DOREPLIFETIME(ACMFactionOutpost, ReserveRemaining);
 	DOREPLIFETIME(ACMFactionOutpost, TotalSoldiersDeployed);
 	DOREPLIFETIME(ACMFactionOutpost, SquadPhase);
-	DOREPLIFETIME(ACMFactionOutpost, bDefensiveContactActive);
+	DOREPLIFETIME(ACMFactionOutpost, bSquadContactActive);
 }
