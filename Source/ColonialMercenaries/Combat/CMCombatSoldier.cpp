@@ -377,27 +377,42 @@ bool ACMCombatSoldier::TryTacticalMove(
 		return false;
 	}
 
+	const float Cooldown = bHasShot
+		? FMath::Max(CombatTactics->GetRepositionCooldown(), 0.5f)
+		: FMath::Max(CombatTactics->GetNoShotRepositionCooldown(), 0.3f);
+
 	if (bTacticalMoveActive)
 	{
-		if (TacticalMoveTarget.Get() != Target
-			|| Now >= TacticalMoveExpiresAt
-			|| FVector::DistSquared2D(GetActorLocation(), TacticalGoal)
-				<= FMath::Square(120.0f))
+		// As soon as a usable shot opens up, stop repositioning to shoot.
+		// Previously movement could suppress firing for up to 3.5 seconds.
+		if (bHasShot)
 		{
 			bTacticalMoveActive = false;
-			NextTacticalMoveAt = Now + CombatTactics->GetRepositionCooldown();
+			NextTacticalMoveAt = Now + Cooldown;
+			return false;
 		}
-		else
+
+		if (TacticalMoveTarget.Get() == Target
+			&& Now < TacticalMoveExpiresAt
+			&& FVector::DistSquared2D(GetActorLocation(), TacticalGoal)
+				> FMath::Square(120.0f))
 		{
-			if (AI->GetMoveStatus() != EPathFollowingStatus::Moving
-				&& Now >= NextMoveRequestTime)
+			if (AI->GetMoveStatus() == EPathFollowingStatus::Moving)
 			{
-				AI->MoveToLocation(TacticalGoal, 85.0f);
-				NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
+				return true;
 			}
-			return true;
+			if (Now < NextMoveRequestTime)
+			{
+				return true;
+			}
+			// A stalled or failed path should not lock a soldier into
+			// looking at the enemy indefinitely. Try a fresh lane.
 		}
+
+		bTacticalMoveActive = false;
+		NextTacticalMoveAt = bHasShot ? Now + Cooldown : Now;
 	}
+
 	if (Now < NextTacticalMoveAt
 		|| !CombatTactics->WantsReposition(
 			bHasShot, Now - LastTacticalMoveAt,
@@ -407,29 +422,53 @@ bool ACMCombatSoldier::TryTacticalMove(
 		return false;
 	}
 
-	const FVector Goal = CombatTactics->ChoosePosition(
-		GetActorLocation(), Target->GetActorLocation(),
-		Center, Radius, WeaponRange, TacticalSideSeed, bHasShot);
+	// Generate several distinct, role-directed lane candidates. NavMesh
+	// validation remains with MoveToLocation; a blocked first candidate
+	// no longer causes a full cooldown while the soldier stands idle.
+	bool bFoundMove = false;
+	for (int32 Attempt = 0; Attempt < 4; ++Attempt)
+	{
+		const FVector Goal = CombatTactics->ChoosePosition(
+			GetActorLocation(), Target->GetActorLocation(),
+			Center, Radius, WeaponRange, TacticalSideSeed++, bHasShot);
+		if (FVector::DistSquared2D(Goal, GetActorLocation())
+			< FMath::Square(135.0f))
+		{
+			continue;
+		}
+
+		const EPathFollowingRequestResult::Type Result =
+			AI->MoveToLocation(Goal, 85.0f);
+		if (Result != EPathFollowingRequestResult::RequestSuccessful)
+		{
+			continue;
+		}
+
+		TacticalGoal = Goal;
+		TacticalMoveTarget = Target;
+		// Allow full travel for longer paths when seeking a firing lane.
+		TacticalMoveExpiresAt = Now + (bHasShot ? 3.5f : 5.0f);
+		bTacticalMoveActive = true;
+		bWasAssisting = true;
+		bSquadMoveDirty = true;
+		NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
+		bFoundMove = true;
+		bReportedMoveFailure = false;
+		break;
+	}
+
 	LastTacticalMoveAt = Now;
-	NextTacticalMoveAt = Now + CombatTactics->GetRepositionCooldown();
-	TacticalSideSeed++;
-	if (FVector::DistSquared2D(Goal, GetActorLocation()) < FMath::Square(135.0f))
+	NextTacticalMoveAt = Now + Cooldown;
+
+	if (!bFoundMove && !bReportedMoveFailure)
 	{
-		return false;
+		UE_LOG(LogTemp, Warning,
+			TEXT("CM FIRING LANE: %s could not navigate to support %s (%.0f cm away, weapon %.0f cm). Check NavMesh and squad leash."),
+			*GetName(), *GetNameSafe(Target),
+			FVector::Dist(GetActorLocation(), Target->GetActorLocation()), WeaponRange);
+		bReportedMoveFailure = true;
 	}
-	const EPathFollowingRequestResult::Type Result =
-		AI->MoveToLocation(Goal, 85.0f);
-	if (Result != EPathFollowingRequestResult::RequestSuccessful)
-	{
-		return false;
-	}
-	TacticalGoal = Goal;
-	TacticalMoveTarget = Target;
-	TacticalMoveExpiresAt = Now + 3.5f;
-	bTacticalMoveActive = true;
-	bWasAssisting = true;
-	NextMoveRequestTime = Now + FMath::Max(PathRetryInterval, 0.1f);
-	return true;
+	return bFoundMove;
 }
 
 bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
