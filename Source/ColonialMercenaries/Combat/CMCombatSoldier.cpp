@@ -422,8 +422,9 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 
 	const float Now = GetWorld()->GetTimeSeconds();
 	const bool bMayReact = SquadOrder != ECMSquadOrder::Disengage;
-	const bool bMayAssist = SquadOrder == ECMSquadOrder::Advance
-		|| SquadOrder == ECMSquadOrder::Defend;
+	// Nearby squadmates assist in any active phase, including Rally.
+	// Disengage remains an unbreakable retreat order.
+	const bool bMayAssist = bMayReact;
 	ACharacter* Target = nullptr;
 	bool bProvoked = false;
 
