@@ -255,6 +255,7 @@ private:
 	TWeakObjectPtr<ACharacter> RecentAttacker;
 	float AttackerMemoryExpiresAt = 0.0f;
 	bool bAttackerWasUnaligned = false;
+	bool bLoggedFailedDamageAttribution = false;
 	bool bSharedConfirmedAttacker = false;
 	FVector DutyCenter = FVector::ZeroVector;
 	float SquadAssistRadius = 1900.0f;
