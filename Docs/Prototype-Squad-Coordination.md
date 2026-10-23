@@ -106,6 +106,109 @@ Individual soldiers pause formation movement to fire visible threats. The
 outpost does not command infantry spawned by another outpost. The system
 continues to use local finite manpower reserves from milestone #14.
 
+## Milestone #15 refinement — AI foundation, damage response and accuracy
+
+Feedback revealed that the original support logic was limited to defenders
+who had already acquired a visible, fireable target. It didn't necessarily
+react to an attacker hitting one soldier, and assaulting squads could remain
+uncoordinated. The solution now uses a common **server-side squad contact
+system**, agnostic to the Red/Blue faction tag.
+
+### Damage and alert flow
+
+- The soldier registers an additional server-side `OnTakeAnyDamage` delegate
+  **without changing the existing health/damage component**.
+- The event reads the instigating controller's pawn (or the damage causer's
+  instigator) and validates the attacker is an actual, living character.
+- Opposing valid faction actors are enemies. A neutral/unassigned character
+  who deliberately damages a soldier also becomes a **confirmed attacker**
+  for that squad; this allows shooting a faction NPC to provoke a response
+  without forcing all neutral players to be permanently hostile.
+- Same-faction friendly-fire damage still reduces health, but does **not**
+  automatically convert allied units into permanent squad enemies.
+- The attacked soldier remembers the aggressor for **8 seconds**. Its
+  outpost polls its **own tracked squad only** at the normal one-second
+  cadence and broadcasts a verified shared contact to squadmates.
+- Contact sharing applies during **Rally, Advance and Defend**, irrespective
+  of faction color. **Withdraw** suppresses further pursuit and maintains
+  the original tactical retreat requirement.
+- A confirmed attack can trigger a response even if the soldier didn't
+  have initial line of sight. Squadmates reposition to seek their own
+  firing lanes within their leash; only a real clear shot causes firing.
+- Visually engaged targets can also be reported, but only when a rifleman
+  currently sees them within weapon range. This prevents stale contacts
+  from being re-broadcast forever.
+
+### Modular combat roles
+
+`UCMCombatTactics` is a small, replaceable `BlueprintNativeEvent`
+strategy object. An NPC's **Combat Tactics Class** property chooses its
+combat behavior class without subclassing the entire NPC or rewriting the
+squad commander. `UCMRiflemanCombatTactics` is the currently implemented
+default role; later Assault, Marksman and Support roles can derive from this
+strategy or from its base. Roles provide:
+
+- `WantsReposition` — whether to shift position during an engagement.
+- `ChoosePosition` — a proposed lateral/standoff position with squad
+  leash limits; AIController still owns actual NavMesh movement.
+- `GetRepositionCooldown` — avoid pointless per-frame wandering.
+- `GetShotSpreadDegrees` — authoritative weapon dispersion selected
+  from target distance and whether the shooter is moving.
+
+Faction ownership, server combat authority, damage, target reporting,
+retreat priority and reinforcement resources stay outside the role strategy.
+There is **no per-frame Tick**, no global battlefield scan, no new
+Blueprint assets, and no change to the player gun or damage math.
+
+### NPC accuracy
+
+The old `FireAt` cast a visibility trace directly to the enemy's center.
+This effectively meant 100% accuracy with a valid line of fire.
+
+Each server-approved shot now draws a random direction inside a
+**role-configurable angular cone**, and traces the resulting line through
+space. A shot can hit the intended enemy, a different intersecting actor
+(full friendly fire), world geometry, or nothing. The existing multicast
+tracer uses the **actual server trace hit/miss endpoint**.
+
+Default rifleman tuning (all editable on the rifleman tactics class defaults,
+not global hardcoded percentages):
+
+- `CloseRangeSpreadDegrees = 1.0`
+- `LongRangeSpreadDegrees = 5.0` at effective `WeaponRange`
+- `MovingSpreadPenaltyDegrees = 2.0`
+- Linear interpolation between close/long values by range; angular
+  distribution corresponds to a **cone half-angle**, not a fixed
+  percentage-to-hit. Hit probability emerges from distance and physical
+  target size. Future roles can override `GetShotSpreadDegrees`.
+
+### Refinement tests before merge
+
+1. Confirm C++ builds with newly introduced `CMCombatTactics.h/.cpp`.
+2. Place Red on Defend and Blue on Assault, shoot either faction unit using
+   a player assigned the opposing faction, and observe the outpost's
+   `- CONTACT` status plus squadmate repositioning.
+3. Swap Red/Blue postures, repeat. Both sides must respond identically.
+4. With a neutral/unassigned player, shooting a soldier should still
+   provoke a **local** squad response. Merely standing nearby should not
+   turn the entire faction hostile.
+5. Verify a squad advancing or assembling assists its hit member; a
+   withdrawing unit still withdraws rather than being locked into combat.
+6. At short and long range, NPC bursts should visibly contain both hits
+   and misses. Check that enemies can still hurt players and one another.
+   Tracers must follow the actual randomly dispersed shot direction.
+7. Observe riflemen making intermittent lateral movements to obtain
+   shots rather than permanently standing still, and then returning
+   to their duty positions after the contact ends.
+8. Run the final two-player PIE regression check: same soldier combat
+   positions, server damage, contact indicator, garrison/reserve counts,
+   revives, and capture-point state. Save and push modified level assets.
+
+**Scope limit:** Not yet a full perception blackboard, cover-query system,
+suppression model, or a behavior tree per unit type. This is a modular
+foundation that can grow into those without tying every behavior to the
+existing soldier's hardcoded state transitions.
+
 ## Playtest in UE 5.8
 
 1. Fetch and switch to `feature/squad-coordination`. Regenerate Visual
