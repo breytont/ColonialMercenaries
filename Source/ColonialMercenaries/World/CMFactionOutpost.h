@@ -201,21 +201,21 @@ protected:
 		meta=(ClampMin="0.0"))
 	float WithdrawalBackOffset = 350.0f;
 
-	/** Maximum distance from the outpost at which a reported attacker may
-	 * trigger a squad response. Supporting soldiers stay inside this area.
+	/** Response leash around the outpost for Defend, or the assigned
+	 * formation slot for Advance/Rally. Works for either faction.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Defense",
 		meta=(ClampMin="500.0", UIMin="1000.0"))
 	float DefensiveAssistRadius = 1900.0f;
 
-	/** Keep a confirmed contact briefly while riflemen reposition for LOS. */
+	/** Keep a verified contact briefly while riflemen reposition for LOS. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Defense",
 		meta=(ClampMin="0.0", UIMin="2.0"))
 	float DefensiveContactMemorySeconds = 4.0f;
 
 	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
-	bool bDefensiveContactActive = false;
+	bool bSquadContactActive = false;
 
 	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
@@ -239,8 +239,9 @@ private:
 	float NextReinforcementTime = 0.0f;
 	float PhaseStartedAt = 0.0f;
 	ECMOutpostPosture CurrentPosture = ECMOutpostPosture::Assault;
-	TWeakObjectPtr<ACharacter> SharedDefenseContact;
-	float DefenseContactExpiresAt = 0.0f;
+	TWeakObjectPtr<ACharacter> SharedSquadContact;
+	bool bSharedContactWasProvoked = false;
+	float SquadContactExpiresAt = 0.0f;
 
 	/** Authority only. Weak references do not prolong soldier lifetime. */
 	TArray<TWeakObjectPtr<ACMCombatSoldier>> FieldedSoldiers;
