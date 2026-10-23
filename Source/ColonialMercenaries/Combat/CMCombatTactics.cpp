@@ -43,8 +43,14 @@ FVector UCMRiflemanCombatTactics::ChoosePosition_Implementation(
 	float LeashRadius, float WeaponRange, int32 SideSeed, bool bCanShoot) const
 {
 	const FVector Away = (SelfPosition - ThreatPosition).GetSafeNormal2D();
+	// Four distinct candidate offsets: left/right wide, left/right
+	// narrow. This allows the navigation requester to try alternatives
+	// when the preferred firing lane lies behind an obstruction.
+	const int32 Variation = SideSeed & 3;
+	const float SideSign = (Variation & 1) ? 1.0f : -1.0f;
+	const float SideScale = (Variation & 2) ? 0.55f : 1.0f;
 	const FVector Side = FVector(-Away.Y, Away.X, 0.0f)
-		* ((SideSeed & 1) ? 1.0f : -1.0f);
+		* SideSign * SideScale;
 	const float Range = FMath::Max(WeaponRange, 100.0f);
 	const FVector EnemyToSelf = SelfPosition - ThreatPosition;
 	const float Distance = EnemyToSelf.Size2D();
