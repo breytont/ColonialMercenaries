@@ -182,6 +182,51 @@ not global hardcoded percentages):
   percentage-to-hit. Hit probability emerges from distance and physical
   target size. Future roles can override `GetShotSpreadDegrees`.
 
+### Damage-response bug fix — confirmed by code inspection, pending PIE regression
+
+Initial local playtest after the AI strategy refactor: shooting Red soldiers
+as a player caused **no visible response**.
+
+The implementation had two concrete logic errors:
+
+1. Incoming damage was recorded but the squad-report code discarded contacts
+   more than **1,900 cm** away; the player's rifle can hit from beyond that.
+   Damage attribution is evidence of hostility even beyond weapon range.
+2. After a tactical reposition, an NPC that still lacked a clear shot could
+   reset its target and return to its guard slot, making its response appear
+   nonexistent.
+
+Changes to validate:
+- A correctly attributed damaging hit now produces one `CM HIT ALERT` log
+  when a soldier first recognizes its attacker.
+- When an attacker is not attributable/eligible, an NPC logs one
+  `CM HIT UNATTRIBUTED` warning with the controller, damage causer and
+  derived shooter. This differentiates missing damage events from faction
+  configuration and shooter identification problems.
+- The outpost reports contact via `CM SQUAD ALERT` and shows
+  `<PHASE> - CONTACT` in the 3D status label.
+- A confirmed attacker is propagated to the squad regardless of **alert
+  range**. **Movement** remains limited by the duty-radius leash. Outside
+  weapon range, riflemen close a meaningful distance (up to 900 cm in one
+  tactical move), search for an angle, and face the attacker when unable
+  to shoot. They no longer drop contact merely because the next tactical
+  reposition is cooling down.
+- Outpost-reported threats are prioritized over unrelated opportunistic
+  nearby targets.
+- Defense deliberately **does not** allow unbounded pursuit. An attacker
+  outside the 1,900 cm defense leash may not be shootable by a rifleman
+  with 950 cm weapon range; visible response/contact is expected, but
+  return fire requires range and clear line of sight.
+
+**First targeted test:** Pull the feature branch, build, open the level
+with Red on Defend and Blue on Assault. Fire **one** player hit at Red while
+standing roughly 1,200–1,500 cm away and watching the outpost. Check for
+`DEFENDING - CONTACT`, a response movement, and eventual return fire
+when within 950 cm. If it still fails, inspect the `CM HIT ALERT`,
+`CM HIT UNATTRIBUTED`, and `CM SQUAD ALERT` messages in Unreal Output
+Log before changing behavior again. Repeat with Blue defending after the
+targeted Red test succeeds.
+
 ### Refinement tests before merge
 
 1. Confirm C++ builds with newly introduced `CMCombatTactics.h/.cpp`.
