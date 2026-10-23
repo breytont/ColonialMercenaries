@@ -47,8 +47,13 @@ FVector UCMRiflemanCombatTactics::ChoosePosition_Implementation(
 	// Stepping to the side seeks a different firing lane. Close only when
 	// blocked or clearly outside the preferred effective engagement range.
 	const float DesiredStandoff = Range * FMath::Clamp(PreferredRangeRatio, 0.2f, 0.95f);
+	// Previously the NPC could approach only 180 cm every ~4.5 seconds,
+	// often giving the appearance of standing still when attacked by a
+	// player firing from beyond the NPC's short weapon range.
+	// Close decisively when out of range, but remain within the leash.
+	const float MaximumApproach = bCanShoot ? 180.0f : 900.0f;
 	const float RadialAdjustment = FMath::Clamp(
-		DesiredStandoff - Distance, -180.0f, 180.0f);
+		DesiredStandoff - Distance, -MaximumApproach, 180.0f);
 	FVector Position = SelfPosition + Side * FMath::Max(LateralMoveDistance, 0.0f)
 		+ Away * RadialAdjustment;
 	Position.Z = SelfPosition.Z;
