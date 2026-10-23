@@ -343,12 +343,15 @@ void ACMFactionOutpost::UpdateSquadOrders()
 				continue;
 			}
 
-			// Alerts stay local to this squad. This is intentionally based
-			// on its reporting member, not on distance from the outpost;
-			// an advancing patrol can be kilometers from its original base.
-			if (FVector::DistSquared2D(
-				Soldier->GetActorLocation(), Candidate->GetActorLocation())
-				> FMath::Square(AlertRadius))
+			// A confirmed hit provides reliable contact even when fired
+			// from outside the usual detection radius. Ordinary visual
+			// reports must still originate within the local squad area.
+			// The AI's duty-radius leash constrains its navigation, NOT
+			// whether a squadmate may warn others about a distant attacker.
+			if (!bConfirmedAttacker
+				&& FVector::DistSquared2D(
+					Soldier->GetActorLocation(), Candidate->GetActorLocation())
+					> FMath::Square(AlertRadius))
 			{
 				continue;
 			}
@@ -390,6 +393,11 @@ void ACMFactionOutpost::UpdateSquadOrders()
 	if (bSquadContactActive != bHasContact)
 	{
 		bSquadContactActive = bHasContact;
+		UE_LOG(LogTemp, Display,
+			TEXT("CM SQUAD ALERT: %s %s%s"),
+			*GetName(), bHasContact ? TEXT("engaging") : TEXT("contact cleared"),
+			bHasContact && SharedSquadContact.IsValid()
+				? *SharedSquadContact->GetName() : TEXT(""));
 		RefreshStatusLabel();
 		ForceNetUpdate();
 	}
