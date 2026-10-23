@@ -16,6 +16,9 @@ class USoundAttenuation;
 class FLifetimeProperty;
 class UTextRenderComponent;
 class AAIController;
+class AController;
+class UDamageType;
+class UCMCombatTactics;
 
 /** High-level movement/combat intent assigned by an authoritative squad leader. */
 UENUM(BlueprintType)
@@ -61,11 +64,16 @@ public:
 	 */
 	ACharacter* GetEngagedTarget() const { return CurrentTarget.Get(); }
 
-	/** Server-only shared contact. Never turns an independent soldier into
-	 * a defender and never permits pursuit outside the supplied perimeter.
+	/** Server-only squad contact. The owning outpost verifies faction and
+	 * proximity. Allows a neutral shooter only after confirmed incoming damage.
 	 */
-	void SetSharedDefenseContact(
-		ACharacter* Threat, FVector DefenseCenter, float AssistRadius);
+	void SetSharedSquadContact(ACharacter* Threat, bool bConfirmedAttacker,
+		FVector DutyCenter, float AssistRadius);
+
+	/** Report a personally engaged enemy or a recent damage instigator.
+	 * The outpost uses this for BOTH factions and ALL non-retreat orders.
+	 */
+	ACharacter* GetReportedThreat(bool& bOutConfirmedAttacker) const;
 
 	/** Animation bridge: grip marker in right-hand bone space. */
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
@@ -86,6 +94,17 @@ protected:
 
 	/** Squad orders take priority over independent pursuit (server only). */
 	bool UpdateOrderedCombat(AAIController* AI);
+
+	/** One role-independent firing path and pluggable position selection. */
+	void AimAndFireAt(ACharacter* Target, AAIController* AI, float Now);
+	bool TryTacticalMove(ACharacter* Target, bool bHasShot, AAIController* AI,
+		FVector DutyCenter, float LeashRadius, float Now);
+	bool IsThreatValid(ACharacter* Candidate, bool bConfirmedAttacker) const;
+
+	UFUNCTION()
+	void HandleIncomingDamage(AActor* DamagedActor, float Damage,
+		const UDamageType* DamageType, AController* InstigatedBy,
+		AActor* DamageCauser);
 
 	/** True when a Visibility trace hits the intended target first. */
 	bool HasLineOfFire(const ACharacter* Target) const;
@@ -167,6 +186,15 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Combat")
 	TObjectPtr<UCMHealthComponent> HealthComponent;
 
+	/** Combat role logic is a replaceable Blueprint/C++ UObject class.
+	 * The default rifleman tactics are intentionally small and data-driven.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Role")
+	TSubclassOf<UCMCombatTactics> CombatTacticsClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMCombatTactics> CombatTactics;
+
 	/** How frequently this NPC reevaluates nearby combatants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="0.1", UIMin="0.1"))
 	float DecisionInterval = 0.35f;
@@ -223,11 +251,22 @@ private:
 
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACharacter> CurrentTarget;
-	TWeakObjectPtr<ACharacter> SharedDefenseTarget;
-	FVector DefenseCenter = FVector::ZeroVector;
-	float DefenseAssistRadius = 1900.0f;
-	FVector LastAssistDestination = FVector::ZeroVector;
+	TWeakObjectPtr<ACharacter> SharedSquadTarget;
+	TWeakObjectPtr<ACharacter> RecentAttacker;
+	float AttackerMemoryExpiresAt = 0.0f;
+	bool bAttackerWasUnaligned = false;
+	bool bSharedConfirmedAttacker = false;
+	FVector DutyCenter = FVector::ZeroVector;
+	float SquadAssistRadius = 1900.0f;
 	bool bWasAssisting = false;
+
+	FVector TacticalGoal = FVector::ZeroVector;
+	TWeakObjectPtr<ACharacter> TacticalMoveTarget;
+	bool bTacticalMoveActive = false;
+	float TacticalMoveExpiresAt = 0.0f;
+	float LastTacticalMoveAt = 0.0f;
+	float NextTacticalMoveAt = 0.0f;
+	int32 TacticalSideSeed = 0;
 	FVector SquadPosition = FVector::ZeroVector;
 	bool bSquadMoveDirty = false;
 	float NextShotTime = 0.0f;
