@@ -275,9 +275,19 @@ ACharacter* ACMCombatSoldier::GetReportedThreat(bool& bOutConfirmedAttacker) con
 		bOutConfirmedAttacker = bAttackerWasUnaligned;
 		return Attacker;
 	}
+	// Only broadcast a visible engagement, not a target that we merely
+	// followed toward (or a squad-shared target heard from another soldier).
+	// Otherwise the outpost could refresh one stale contact indefinitely.
 	ACharacter* Engaged = CurrentTarget.Get();
-	return IsThreatValid(Engaged, bSharedConfirmedAttacker)
-		? Engaged : nullptr;
+	if (IsThreatValid(Engaged, bSharedConfirmedAttacker)
+		&& FVector::DistSquared(GetActorLocation(), Engaged->GetActorLocation())
+			<= FMath::Square(WeaponRange)
+		&& HasLineOfFire(Engaged))
+	{
+		bOutConfirmedAttacker = bSharedConfirmedAttacker;
+		return Engaged;
+	}
+	return nullptr;
 }
 
 void ACMCombatSoldier::HandleIncomingDamage(
@@ -691,12 +701,18 @@ void ACMCombatSoldier::UpdateCombat()
 		return;
 	}
 
-	ACharacter* Target = FindClosestHostile();
-	if (!IsValid(Target) && GetWorld()
+	// A verified attack is more urgent than a random visible enemy;
+	// after its short memory window, autonomous soldiers resume scouting.
+	ACharacter* Target = nullptr;
+	if (GetWorld()
 		&& GetWorld()->GetTimeSeconds() < AttackerMemoryExpiresAt
 		&& IsThreatValid(RecentAttacker.Get(), true))
 	{
 		Target = RecentAttacker.Get();
+	}
+	if (!IsValid(Target))
+	{
+		Target = FindClosestHostile();
 	}
 	if (!IsValid(Target))
 	{
