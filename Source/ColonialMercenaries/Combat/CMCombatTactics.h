@@ -32,6 +32,13 @@ public:
 		FVector DutyCenter, float LeashRadius, float WeaponRange, int32 SideSeed,
 		bool bCanShoot) const;
 
+	/** How quickly a blocked/out-of-range soldier may try a new firing lane.
+	 * This is separate from the slower cosmetic between-burst movement.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Colonial Mercenaries|AI|Tactics")
+	float GetNoShotRepositionCooldown() const;
+	virtual float GetNoShotRepositionCooldown_Implementation() const;
+
 	/** Shot cone half-angle in degrees; each shot is resolved by the server.
 	 * Distance and movement change dispersion without arbitrary hit rolls.
 	 */
@@ -62,6 +69,7 @@ public:
 		FVector DutyCenter, float LeashRadius, float WeaponRange, int32 SideSeed,
 		bool bCanShoot) const override;
 	virtual float GetRepositionCooldown_Implementation() const override;
+	virtual float GetNoShotRepositionCooldown_Implementation() const override;
 	virtual float GetShotSpreadDegrees_Implementation(float DistanceToTarget,
 		float WeaponRange, bool bMoving) const override;
 
@@ -74,6 +82,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
 		meta=(ClampMin="0.5"))
 	float RepositionCooldown = 4.5f;
+
+	/** Faster search for a firing lane when the soldier cannot shoot. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
+		meta=(ClampMin="0.3"))
+	float NoShotRepositionCooldown = 1.2f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
 		meta=(ClampMin="0.2", ClampMax="0.95"))
