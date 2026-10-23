@@ -25,6 +25,11 @@ float UCMCombatTactics::GetRepositionCooldown_Implementation() const
 	return 4.5f;
 }
 
+float UCMCombatTactics::GetNoShotRepositionCooldown_Implementation() const
+{
+	return 1.5f;
+}
+
 bool UCMRiflemanCombatTactics::WantsReposition_Implementation(
 	bool bCanShoot, float TimeSinceLastMove, float DistanceToThreat, float WeaponRange) const
 {
@@ -72,6 +77,11 @@ FVector UCMRiflemanCombatTactics::ChoosePosition_Implementation(
 float UCMRiflemanCombatTactics::GetRepositionCooldown_Implementation() const
 {
 	return FMath::Max(RepositionCooldown, 0.5f);
+}
+
+float UCMRiflemanCombatTactics::GetNoShotRepositionCooldown_Implementation() const
+{
+	return FMath::Max(NoShotRepositionCooldown, 0.3f);
 }
 
 float UCMRiflemanCombatTactics::GetShotSpreadDegrees_Implementation(
