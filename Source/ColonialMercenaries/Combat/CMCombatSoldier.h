@@ -15,6 +15,21 @@ class USoundBase;
 class USoundAttenuation;
 class FLifetimeProperty;
 class UTextRenderComponent;
+class AAIController;
+class AController;
+class UDamageType;
+class UCMCombatTactics;
+
+/** High-level movement/combat intent assigned by an authoritative squad leader. */
+UENUM(BlueprintType)
+enum class ECMSquadOrder : uint8
+{
+	Independent UMETA(DisplayName="Independent"),
+	Rally UMETA(DisplayName="Assemble"),
+	Advance UMETA(DisplayName="Advance"),
+	Defend UMETA(DisplayName="Defend"),
+	Disengage UMETA(DisplayName="Withdraw")
+};
 
 /**
  * Temporary prototype soldier for independent faction combat.
@@ -37,6 +52,29 @@ public:
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat")
 	UCMHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
+	/** Outpost/squad leader command; ignored on clients. Independent preserves original AI. */
+	UFUNCTION(BlueprintCallable, Category="Colonial Mercenaries|Combat|Squad")
+	void SetSquadOrder(ECMSquadOrder NewOrder, FVector AssignedPosition);
+
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Squad")
+	ECMSquadOrder GetSquadOrder() const { return SquadOrder; }
+
+	/** Current visible opponent being engaged, for the owning outpost's
+	 * short-range squad contact reports. May be null or stale; validate it.
+	 */
+	ACharacter* GetEngagedTarget() const { return CurrentTarget.Get(); }
+
+	/** Server-only squad contact. The owning outpost verifies faction and
+	 * proximity. Allows a neutral shooter only after confirmed incoming damage.
+	 */
+	void SetSharedSquadContact(ACharacter* Threat, bool bConfirmedAttacker,
+		FVector DutyCenter, float AssistRadius);
+
+	/** Report a personally engaged enemy or a recent damage instigator.
+	 * The outpost uses this for BOTH factions and ALL non-retreat orders.
+	 */
+	ACharacter* GetReportedThreat(bool& bOutConfirmedAttacker) const;
+
 	/** Animation bridge: grip marker in right-hand bone space. */
 	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Combat|Animation")
 	FVector GetPrototypeRifleSupportGripInRightHandSpace() const;
@@ -52,7 +90,21 @@ protected:
 	void UpdateCombat();
 
 	/** Find nearest hostile soldier or active player within detection range. */
-	ACharacter* FindClosestHostile() const;
+	ACharacter* FindClosestHostile(float SearchRadius = 0.0f) const;
+
+	/** Squad orders take priority over independent pursuit (server only). */
+	bool UpdateOrderedCombat(AAIController* AI);
+
+	/** One role-independent firing path and pluggable position selection. */
+	void AimAndFireAt(ACharacter* Target, AAIController* AI, float Now);
+	bool TryTacticalMove(ACharacter* Target, bool bHasShot, AAIController* AI,
+		FVector DutyCenter, float LeashRadius, float Now);
+	bool IsThreatValid(ACharacter* Candidate, bool bConfirmedAttacker) const;
+
+	UFUNCTION()
+	void HandleIncomingDamage(AActor* DamagedActor, float Damage,
+		const UDamageType* DamageType, AController* InstigatedBy,
+		AActor* DamageCauser);
 
 	/** True when a Visibility trace hits the intended target first. */
 	bool HasLineOfFire(const ACharacter* Target) const;
@@ -134,6 +186,15 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Combat")
 	TObjectPtr<UCMHealthComponent> HealthComponent;
 
+	/** Combat role logic is a replaceable Blueprint/C++ UObject class.
+	 * The default rifleman tactics are intentionally small and data-driven.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Role")
+	TSubclassOf<UCMCombatTactics> CombatTacticsClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMCombatTactics> CombatTactics;
+
 	/** How frequently this NPC reevaluates nearby combatants. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Colonial Mercenaries|Combat|Tuning", meta=(ClampMin="0.1", UIMin="0.1"))
 	float DecisionInterval = 0.35f;
@@ -181,11 +242,36 @@ protected:
 	UPROPERTY(Replicated, Transient)
 	FRotator CombatAimRotation = FRotator::ZeroRotator;
 
+	UPROPERTY(Replicated, Transient, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Combat|Squad")
+	ECMSquadOrder SquadOrder = ECMSquadOrder::Independent;
+
 private:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	FTimerHandle DecisionTimerHandle;
 	TWeakObjectPtr<ACharacter> CurrentTarget;
+	TWeakObjectPtr<ACharacter> SharedSquadTarget;
+	TWeakObjectPtr<ACharacter> RecentAttacker;
+	float AttackerMemoryExpiresAt = 0.0f;
+	bool bAttackerWasUnaligned = false;
+	bool bLoggedFailedDamageAttribution = false;
+	bool bSharedConfirmedAttacker = false;
+	FVector DutyCenter = FVector::ZeroVector;
+	float SquadAssistRadius = 1900.0f;
+	bool bWasAssisting = false;
+
+	FVector TacticalGoal = FVector::ZeroVector;
+	TWeakObjectPtr<ACharacter> TacticalMoveTarget;
+	TWeakObjectPtr<ACharacter> LastLoggedFiringHoldTarget;
+	bool bLastFiringHoldWasOutOfRange = false;
+	bool bTacticalMoveActive = false;
+	float TacticalMoveExpiresAt = 0.0f;
+	float LastTacticalMoveAt = 0.0f;
+	float NextTacticalMoveAt = 0.0f;
+	int32 TacticalSideSeed = 0;
+	FVector SquadPosition = FVector::ZeroVector;
+	bool bSquadMoveDirty = false;
 	float NextShotTime = 0.0f;
 	float NextMoveRequestTime = 0.0f;
 	bool bLastMoveWasBlockedApproach = false;
