@@ -447,17 +447,18 @@ bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 			Target = Reported;
 			bProvoked = bReportedAggressor;
 		}
-		if (!IsValid(Target) && bMayAssist)
-		{
-			Target = FindClosestHostile(WeaponRange);
-		}
+		// An outpost-reported aggressor outranks opportunistic fire at
+		// an unrelated nearby hostile, so all soldiers assist the same
+		// squadmate rather than splitting their attention.
 		if (!IsValid(Target) && IsThreatValid(
 			SharedSquadTarget.Get(), bSharedConfirmedAttacker))
 		{
-			// Awareness is independent from pursuing. The soldier can
-			// prepare a bounded response to an attacker beyond its post.
 			Target = SharedSquadTarget.Get();
 			bProvoked = bSharedConfirmedAttacker;
+		}
+		if (!IsValid(Target) && bMayAssist)
+		{
+			Target = FindClosestHostile(WeaponRange);
 		}
 
 		if (IsThreatValid(Target, bProvoked))
