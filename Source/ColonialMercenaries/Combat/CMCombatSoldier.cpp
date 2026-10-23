@@ -794,7 +794,27 @@ void ACMCombatSoldier::FireAt(ACharacter* Target)
 	}
 
 	const FVector Start = GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
-	const FVector End = Target->GetActorLocation() + FVector(0.0f, 0.0f, AimHeight);
+	const FVector TargetCenter = Target->GetActorLocation()
+		+ FVector(0.0f, 0.0f, AimHeight);
+	const FVector PerfectDirection = (TargetCenter - Start).GetSafeNormal();
+	if (PerfectDirection.IsNearlyZero())
+	{
+		return;
+	}
+
+	// Never give AI an automatic center-mass hit. The combat ROLE
+	// determines the shot dispersion, then only an actual authoritative
+	// trace intersection damages an actor. Misses continue past the target.
+	const float Distance = FVector::Distance(Start, TargetCenter);
+	const bool bMoving = GetVelocity().SizeSquared2D()
+		> FMath::Square(90.0f);
+	const float ConeDegrees = IsValid(CombatTactics)
+		? CombatTactics->GetShotSpreadDegrees(Distance, WeaponRange, bMoving)
+		: 2.0f;
+	const FVector ShotDirection = FMath::VRandCone(
+		PerfectDirection, FMath::DegreesToRadians(FMath::Clamp(ConeDegrees, 0.0f, 30.0f)));
+	const FVector End = Start + ShotDirection
+		* FMath::Max(WeaponRange, Distance + 125.0f);
 
 	FCollisionQueryParams TraceParams;
 	TraceParams.AddIgnoredActor(this);
