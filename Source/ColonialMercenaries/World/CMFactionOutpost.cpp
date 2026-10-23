@@ -355,11 +355,24 @@ void ACMFactionOutpost::UpdateSquadOrders()
 			{
 				continue;
 			}
-			NewContact = Candidate;
-			bNewContactWasProvoked = bUnalignedAggressor;
-			break;
+			// A rifleman that was actually hit is a higher-priority
+			// report than a squadmate merely observing the opposing
+			// faction. Otherwise an already-engaged squad can ignore
+			// the player who just attacked its second/third member.
+			if (bConfirmedAttacker)
+			{
+				NewContact = Candidate;
+				bNewContactWasProvoked = bUnalignedAggressor;
+				break;
+			}
+			if (!IsValid(NewContact))
+			{
+				NewContact = Candidate;
+				bNewContactWasProvoked = bUnalignedAggressor;
+			}
 		}
 
+		ACharacter* PreviousContact = SharedSquadContact.Get();
 		const float Now = GetWorld()->GetTimeSeconds();
 		if (IsValid(NewContact))
 		{
@@ -367,6 +380,12 @@ void ACMFactionOutpost::UpdateSquadOrders()
 			bSharedContactWasProvoked = bNewContactWasProvoked;
 			SquadContactExpiresAt = Now
 				+ FMath::Max(DefensiveContactMemorySeconds, 0.0f);
+			if (PreviousContact != NewContact)
+			{
+				UE_LOG(LogTemp, Display,
+					TEXT("CM SQUAD TARGET: %s switched contact to %s"),
+					*GetName(), *NewContact->GetName());
+			}
 		}
 		else
 		{
