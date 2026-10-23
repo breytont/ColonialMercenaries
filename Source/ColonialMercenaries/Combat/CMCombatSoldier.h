@@ -263,6 +263,8 @@ private:
 
 	FVector TacticalGoal = FVector::ZeroVector;
 	TWeakObjectPtr<ACharacter> TacticalMoveTarget;
+	TWeakObjectPtr<ACharacter> LastLoggedFiringHoldTarget;
+	bool bLastFiringHoldWasOutOfRange = false;
 	bool bTacticalMoveActive = false;
 	float TacticalMoveExpiresAt = 0.0f;
 	float LastTacticalMoveAt = 0.0f;
