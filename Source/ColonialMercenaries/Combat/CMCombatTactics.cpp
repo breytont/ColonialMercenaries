@@ -14,6 +14,12 @@ FVector UCMCombatTactics::ChoosePosition_Implementation(
 	return SelfPosition;
 }
 
+float UCMCombatTactics::GetShotSpreadDegrees_Implementation(
+	float DistanceToTarget, float WeaponRange, bool bMoving) const
+{
+	return 2.0f;
+}
+
 float UCMCombatTactics::GetRepositionCooldown_Implementation() const
 {
 	return 4.5f;
@@ -61,4 +67,17 @@ FVector UCMRiflemanCombatTactics::ChoosePosition_Implementation(
 float UCMRiflemanCombatTactics::GetRepositionCooldown_Implementation() const
 {
 	return FMath::Max(RepositionCooldown, 0.5f);
+}
+
+float UCMRiflemanCombatTactics::GetShotSpreadDegrees_Implementation(
+	float DistanceToTarget, float WeaponRange, bool bMoving) const
+{
+	const float RangeAlpha = FMath::Clamp(
+		DistanceToTarget / FMath::Max(WeaponRange, 1.0f), 0.0f, 1.0f);
+	const float Baseline = FMath::Lerp(
+		FMath::Max(CloseRangeSpreadDegrees, 0.0f),
+		FMath::Max(LongRangeSpreadDegrees, 0.0f), RangeAlpha);
+	return FMath::Clamp(Baseline
+		+ (bMoving ? FMath::Max(MovingSpreadPenaltyDegrees, 0.0f) : 0.0f),
+		0.0f, 30.0f);
 }
