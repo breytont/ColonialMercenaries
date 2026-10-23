@@ -182,6 +182,46 @@ not global hardcoded percentages):
   percentage-to-hit. Hit probability emerges from distance and physical
   target size. Future roles can override `GetShotSpreadDegrees`.
 
+### Neutral-player behavior and firing-lane iteration
+
+Player test feedback confirmed **neither outpost should automatically
+treat an unassigned/None-faction player as hostile**. Firing at a soldier
+creates a confirmed, temporary threat for the attacked soldier and squad;
+proximity alone must not trigger hostility. A player explicitly assigned
+to the same faction is an ally, while an opposing valid faction tag uses
+the normal enemy scan even before the first shot. Do not conflate neutral
+non-aggression with damage-response failure.
+
+Some provoked guards turned to face the player without returning fire.
+**Facing/alert does not imply a valid shot:** NPC rifle range is currently
+**950 cm**, and `HasLineOfFire` requires an unobstructed torso-level
+visibility trace. They should not shoot through allies or terrain.
+
+Firing position improvements on this branch:
+- If a tactical move opens a valid firing line, the rifleman stops
+  relocating and fires **immediately** instead of continuing the prior
+  movement window.
+- When no shot is available, `GetNoShotRepositionCooldown` is separate
+  from slower between-burst tactical shifts (**1.2 s** default for
+  riflemen, versus **4.5 s** for discretionary repositioning).
+- The role strategy proposes four distinct lateral firing-lane positions:
+  left/right wide and left/right narrow. The AI tries alternatives when
+  navigation rejects the first location; a failed candidate no longer
+  consumes an entire long tactical cooldown.
+- Each soldier emits `CM SHOT HELD: ... OUT OF RANGE` or
+  `CM SHOT HELD: ... NO LINE OF FIRE` when the reason changes or the
+  target changes. `CM FIRING LANE` warns when all movement candidates
+  fail. These diagnostic logs distinguish expected gun-range limitations
+  from blocked paths or sightlines.
+
+**Next focused test:** with the player's Faction left as **None**, start
+with Red on Defend. Shoot one Red soldier within about **600–800 cm**
+and in the open (not behind other infantry or obstacles). The Red squad
+should report contact, move to new firing positions where needed, then
+return fire when it has a clear shot. Move beyond **950 cm** and confirm
+soldiers close their distance but do not unrealistically shoot through
+terrain; use the new Output Log reason markers if a guard only aims.
+
 ### Damage-response bug fix — confirmed by code inspection, pending PIE regression
 
 Initial local playtest after the AI strategy refactor: shooting Red soldiers
