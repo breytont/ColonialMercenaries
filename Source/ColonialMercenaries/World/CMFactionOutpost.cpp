@@ -309,10 +309,10 @@ void ACMFactionOutpost::UpdateSquadOrders()
 		: SquadPhase == ECMOutpostSquadPhase::Defend ? ECMSquadOrder::Defend
 		: ECMSquadOrder::Advance;
 
-	// The SAME squad contact service runs regardless of which faction owns
-	// the base, and whether the detachment is assembling, assaulting or
-	// defending. Withdrawal takes priority and suppresses combat response.
-	if (SquadPhase != ECMOutpostSquadPhase::Retreat)
+	// Both factions share contacts during EVERY squad phase, including
+	// withdrawal. This is awareness only: a withdrawing soldier can
+	// deliver local covering fire but can never abandon its retreat route
+	// to chase the shared target.
 	{
 		ACharacter* NewContact = nullptr;
 		bool bNewContactWasProvoked = false;
@@ -400,15 +400,7 @@ void ACMFactionOutpost::UpdateSquadOrders()
 			}
 		}
 	}
-	else
-	{
-		SharedSquadContact.Reset();
-		bSharedContactWasProvoked = false;
-		SquadContactExpiresAt = 0.0f;
-	}
-
-	const bool bHasContact = IsValid(SharedSquadContact.Get())
-		&& SquadPhase != ECMOutpostSquadPhase::Retreat;
+	const bool bHasContact = IsValid(SharedSquadContact.Get());
 	if (bSquadContactActive != bHasContact)
 	{
 		bSquadContactActive = bHasContact;
@@ -428,7 +420,9 @@ void ACMFactionOutpost::UpdateSquadOrders()
 		Soldier->SetSquadOrder(Order, GetSquadSlot(Index, SquadPhase));
 
 		// Defense stays inside the base perimeter; assault assistance is
-		// leashed to each member's objective slot. Orders still take priority.
+		// leashed to each member's objective slot. During retreat the
+		// contact is informational only: soldiers remain bound to their
+		// withdrawal slots and can opportunistically return fire.
 		const FVector Center = SquadPhase == ECMOutpostSquadPhase::Defend
 			? GetActorLocation() : GetSquadSlot(Index, SquadPhase);
 		Soldier->SetSharedSquadContact(
