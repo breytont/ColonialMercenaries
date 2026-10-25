@@ -217,6 +217,12 @@ void ACMCombatSoldier::SetSquadOrder(
 
 	SquadOrder = NewOrder;
 	SquadPosition = AssignedPosition;
+	// A withdrawal begins with an immediately available covering-fire
+	// opportunity, but succeeding pauses remain rate limited by the role.
+	if (NewOrder == ECMSquadOrder::Disengage)
+	{
+		NextRetreatCoverFireTime = 0.0f;
+	}
 	bTacticalMoveActive = false;
 	CurrentTarget.Reset();
 	bSquadMoveDirty = true;
@@ -471,12 +477,107 @@ bool ACMCombatSoldier::TryTacticalMove(
 	return bFoundMove;
 }
 
+bool ACMCombatSoldier::TryWithdrawalCoverFire(AAIController* AI, float Now)
+{
+	if (!AI || !GetWorld() || SquadOrder != ECMSquadOrder::Disengage)
+	{
+		return false;
+	}
+
+	// Retreating does NOT mean blind or disarmed. A verified aggressor
+	// (including a neutral player who fired first) takes precedence,
+	// followed by the squad's warning and then nearby faction hostiles.
+	// Unlike ordinary combat, none of these threats may change our
+	// navigation destination: the withdrawal order always wins.
+	const float RangeSq = FMath::Square(WeaponRange);
+	const auto CanReturnFire = [this, RangeSq](
+		ACharacter* Candidate, bool bConfirmedAttacker) -> bool
+	{
+		return IsThreatValid(Candidate, bConfirmedAttacker)
+			&& FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation())
+				<= RangeSq
+			&& HasLineOfFire(Candidate);
+	};
+
+	ACharacter* Threat = nullptr;
+	bool bConfirmedAttacker = false;
+	ACharacter* PersonalContact = GetReportedThreat(bConfirmedAttacker);
+	if (CanReturnFire(PersonalContact, bConfirmedAttacker))
+	{
+		Threat = PersonalContact;
+	}
+	if (!IsValid(Threat)
+		&& CanReturnFire(SharedSquadTarget.Get(), bSharedConfirmedAttacker))
+	{
+		Threat = SharedSquadTarget.Get();
+	}
+	if (!IsValid(Threat))
+	{
+		ACharacter* VisibleHostile = FindClosestHostile(WeaponRange);
+		if (CanReturnFire(VisibleHostile, false))
+		{
+			Threat = VisibleHostile;
+		}
+	}
+
+	if (!IsValid(Threat))
+	{
+		// Keep moving toward the designated base if nobody can be shot.
+		// Never try to close with an attacker while disengaging.
+		return false;
+	}
+
+	// The replicated aim is still relevant while moving to safety; the
+	// soldier only turns its whole body during a short covering-fire pause.
+	const FVector ToThreat = (Threat->GetActorLocation()
+		+ FVector(0.0f, 0.0f, AimHeight)
+		- (GetActorLocation() + FVector(0.0f, 0.0f, AimHeight))).GetSafeNormal();
+	if (!ToThreat.IsNearlyZero())
+	{
+		CombatAimRotation = ToThreat.Rotation();
+	}
+
+	const bool bAtSafetyPosition = FVector::DistSquared2D(
+		GetActorLocation(), SquadPosition) <= FMath::Square(100.0f);
+
+	if (Now < NextShotTime
+		|| (!bAtSafetyPosition && Now < NextRetreatCoverFireTime))
+	{
+		return false;
+	}
+
+	// A moving soldier briefly stops to FACE the opponent and fire once,
+	// then the next decision restores MoveTo(SquadPosition). At the base,
+	// the same soldier can hold position and fire at normal weapon cadence.
+	// Crucially, AimAndFireAt is *not* called every decision: doing that
+	// would prevent withdrawal whenever a hostile stays inside weapon range.
+	AimAndFireAt(Threat, AI, Now);
+	NextRetreatCoverFireTime = Now + FMath::Max(
+		IsValid(CombatTactics) ? CombatTactics->GetRetreatCoverFireInterval()
+			: 2.5f, 0.5f);
+
+	UE_LOG(LogTemp, Verbose,
+		TEXT("CM RETREAT COVER FIRE: %s returning fire at %s; continuing withdrawal toward squad slot."),
+		*GetName(), *Threat->GetName());
+	return true;
+}
+
 bool ACMCombatSoldier::UpdateOrderedCombat(AAIController* AI)
 {
 	if (SquadOrder == ECMSquadOrder::Independent) { return false; }
 	if (!AI || !GetWorld()) { return true; }
 
 	const float Now = GetWorld()->GetTimeSeconds();
+
+	// Covering fire is an opportunistic *interrupt*, not a combat order.
+	// A shot consumes one decision, then the existing movement-to-base
+	// routine resumes automatically. Otherwise withdrawal is unchanged.
+	if (SquadOrder == ECMSquadOrder::Disengage
+		&& TryWithdrawalCoverFire(AI, Now))
+	{
+		return true;
+	}
+
 	const bool bMayReact = SquadOrder != ECMSquadOrder::Disengage;
 	// Nearby squadmates assist in any active phase, including Rally.
 	// Disengage remains an unbreakable retreat order.
