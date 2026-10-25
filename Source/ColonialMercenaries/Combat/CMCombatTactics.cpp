@@ -30,6 +30,11 @@ float UCMCombatTactics::GetNoShotRepositionCooldown_Implementation() const
 	return 1.5f;
 }
 
+float UCMCombatTactics::GetRetreatCoverFireInterval_Implementation() const
+{
+	return 2.5f;
+}
+
 bool UCMRiflemanCombatTactics::WantsReposition_Implementation(
 	bool bCanShoot, float TimeSinceLastMove, float DistanceToThreat, float WeaponRange) const
 {
@@ -88,6 +93,11 @@ float UCMRiflemanCombatTactics::GetRepositionCooldown_Implementation() const
 float UCMRiflemanCombatTactics::GetNoShotRepositionCooldown_Implementation() const
 {
 	return FMath::Max(NoShotRepositionCooldown, 0.3f);
+}
+
+float UCMRiflemanCombatTactics::GetRetreatCoverFireInterval_Implementation() const
+{
+	return FMath::Max(RetreatCoverFireInterval, 0.5f);
 }
 
 float UCMRiflemanCombatTactics::GetShotSpreadDegrees_Implementation(
