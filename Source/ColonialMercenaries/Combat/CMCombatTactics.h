@@ -39,6 +39,13 @@ public:
 	float GetNoShotRepositionCooldown() const;
 	virtual float GetNoShotRepositionCooldown_Implementation() const;
 
+	/** Minimum seconds between brief covering-fire pauses while withdrawing.
+	 * The soldier never pursues the target or abandons its retreat goal.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Colonial Mercenaries|AI|Tactics")
+	float GetRetreatCoverFireInterval() const;
+	virtual float GetRetreatCoverFireInterval_Implementation() const;
+
 	/** Shot cone half-angle in degrees; each shot is resolved by the server.
 	 * Distance and movement change dispersion without arbitrary hit rolls.
 	 */
@@ -70,6 +77,7 @@ public:
 		bool bCanShoot) const override;
 	virtual float GetRepositionCooldown_Implementation() const override;
 	virtual float GetNoShotRepositionCooldown_Implementation() const override;
+	virtual float GetRetreatCoverFireInterval_Implementation() const override;
 	virtual float GetShotSpreadDegrees_Implementation(float DistanceToTarget,
 		float WeaponRange, bool bMoving) const override;
 
@@ -87,6 +95,11 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
 		meta=(ClampMin="0.3"))
 	float NoShotRepositionCooldown = 1.2f;
+
+	/** Pause briefly to return fire, then continue toward safety. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
+		meta=(ClampMin="0.5"))
+	float RetreatCoverFireInterval = 2.5f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|AI|Rifleman",
 		meta=(ClampMin="0.2", ClampMax="0.95"))
