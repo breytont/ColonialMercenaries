@@ -95,6 +95,11 @@ protected:
 	/** Squad orders take priority over independent pursuit (server only). */
 	bool UpdateOrderedCombat(AAIController* AI);
 
+	/** Limited self-defense while withdrawing: an occasional brief pause
+	 * to fire, never chasing or changing the commander-assigned destination.
+	 */
+	bool TryWithdrawalCoverFire(AAIController* AI, float Now);
+
 	/** One role-independent firing path and pluggable position selection. */
 	void AimAndFireAt(ACharacter* Target, AAIController* AI, float Now);
 	bool TryTacticalMove(ACharacter* Target, bool bHasShot, AAIController* AI,
@@ -273,6 +278,7 @@ private:
 	FVector SquadPosition = FVector::ZeroVector;
 	bool bSquadMoveDirty = false;
 	float NextShotTime = 0.0f;
+	float NextRetreatCoverFireTime = 0.0f;
 	float NextMoveRequestTime = 0.0f;
 	bool bLastMoveWasBlockedApproach = false;
 	bool bReportedMissingController = false;
