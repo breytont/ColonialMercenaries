@@ -272,6 +272,66 @@ when within 950 cm. If it still fails, inspect the `CM HIT ALERT`,
 Log before changing behavior again. Repeat with Blue defending after the
 targeted Red test succeeds.
 
+### Fighting withdrawal / self-preservation (October 25 test feedback)
+
+User verified Red/Blue damage retaliation, nearby squad assistance,
+retreat/reinforcement, **and multiplayer**. Remaining issue: a squad
+under `Withdraw` ran to its base with its back to incoming fire, and
+did not respond to hostile players or infantry **even at the base**.
+
+Fix: `Disengage` is still the highest-priority *movement* order, but
+is no longer interpreted as "never fire again." The existing soldier
+decision timer offers a **brief covering-fire interruption** without
+starting chase/reposition movement:
+
+- Retreating soldiers check (priority order) their own verified attacker,
+  an outpost-shared contact, and a nearby normal hostile detected by the
+  local pawn overlap scan. `None`-faction players still require a
+  confirmed damaging attack before they can be targeted.
+- Fire requires the same `WeaponRange` (currently 950 cm) and actual
+  `HasLineOfFire` as regular combat; never shoot through a wall or a
+  blocking ally merely because the soldier is being pursued.
+- When a valid target is shootable, the soldier pauses navigation,
+  faces the enemy, fires **one** server-authoritative dispersed
+  hitscan shot, then on its **next** decision returns to the previously
+  assigned withdrawal slot.
+- Combat roles expose `GetRetreatCoverFireInterval` (default rifleman
+  **2.5 seconds** between stops while moving), which can be tuned
+  independently for future unit types. This prevents attack spam from
+  pinning the survivor in place indefinitely.
+- Once within the designated home slot's arrival tolerance (100 cm),
+  the soldier may fire at its normal `ShotsPerSecond` cadence; it
+  continues to defend itself while awaiting reinforcements.
+- Outposts keep sharing their small verified contact records during
+  `Retreat` and can display `WITHDRAWING - CONTACT`. This is **awareness
+  only**, not a movement override: soldiers are never allowed to pursue
+  or use the normal tactically advancing `TryTacticalMove` while
+  withdrawing.
+- Projectile accuracy, friendliness checks, health/death, timed
+  garrison reinforcement and objective capture code remain unchanged.
+  No global actor scan, Behavior Tree, or Actor Tick is introduced.
+
+**Focused regression checklist after pulling/building:**
+
+1. Run `Lvl_FactionTest` with both outposts on Assault, three
+   soldiers each. Let one detachment lose two of three.
+2. When the survivor withdraws, step into **950 cm**, with an open
+   visibility path. The survivor should intermittently turn, fire,
+   and continue retreating toward its base. It must **not** chase.
+3. Continue following it to its assigned retreat slot. When you
+   remain hostile and within rifle range, it should face you and
+   shoot without abandoning the safety position.
+4. Retest when the attacker is an **unaligned/None**-faction player:
+   neutral before firing on the soldier, hostile locally afterward.
+5. Confirm that gunfire from beyond rifle range does not produce
+   unrealistic long-range retaliation and cannot prevent retreat.
+6. Verify the original two-survivors-lost -> withdraw -> replace
+   -> regroup -> advance cycle still works on *both* factions, then
+   do a two-player PIE run.
+
+**Pending**: GitHub source updates are not equivalent to a verified
+UE 5.8 build or PIE pass. Keep PR #15 in draft until user testing.
+
 ### Refinement tests before merge
 
 1. Confirm C++ builds with newly introduced `CMCombatTactics.h/.cpp`.
