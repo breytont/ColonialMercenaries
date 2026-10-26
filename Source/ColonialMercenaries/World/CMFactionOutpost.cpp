@@ -255,6 +255,8 @@ void ACMFactionOutpost::SetSquadPhase(ECMOutpostSquadPhase NewPhase)
 	if (!HasAuthority() || SquadPhase == NewPhase || !GetWorld()) { return; }
 	SquadPhase = NewPhase;
 	PhaseStartedAt = GetWorld()->GetTimeSeconds();
+	AssemblyReadySince = -1.0f;
+	RalliedGarrison = 0;
 	UE_LOG(LogTemp, Log, TEXT("CM outpost %s squad phase -> %s"),
 		*GetName(), *UEnum::GetValueAsString(SquadPhase));
 	RefreshStatusLabel();
@@ -297,6 +299,29 @@ FVector ACMFactionOutpost::GetSquadSlot(
 		* FMath::Max(SquadSlotSpacing, 100.0f);
 	return Anchor + Right * Side
 		- Front * (Row * FMath::Max(RowSpacing, 100.0f));
+}
+
+int32 ACMFactionOutpost::CountRalliedInfantry() const
+{
+	const float AcceptanceRadius = FMath::Max(RallySlotRadius, 100.0f);
+	const float AcceptanceRadiusSq = FMath::Square(AcceptanceRadius);
+	int32 ReadyCount = 0;
+
+	// Only the soldiers this outpost owns, checked on its existing timer.
+	// Compare each member with its own assigned assembly slot rather than
+	// with the base center: a separated survivor cannot count as rallied.
+	for (int32 Index = 0; Index < FieldedSoldiers.Num(); ++Index)
+	{
+		const ACMCombatSoldier* Soldier = FieldedSoldiers[Index].Get();
+		if (IsValid(Soldier)
+			&& FVector::DistSquared2D(
+				Soldier->GetActorLocation(),
+				GetSquadSlot(Index, ECMOutpostSquadPhase::Assembly)) <= AcceptanceRadiusSq)
+		{
+			++ReadyCount;
+		}
+	}
+	return ReadyCount;
 }
 
 void ACMFactionOutpost::UpdateSquadOrders()
@@ -446,10 +471,38 @@ void ACMFactionOutpost::CheckGarrison()
 	}
 	else if (SquadPhase == ECMOutpostSquadPhase::Assembly)
 	{
-		if (ActiveGarrison > 0
-			&& Now - PhaseStartedAt >= FMath::Max(AssemblySeconds, 0.0f))
+		const int32 CurrentRalliedCount = CountRalliedInfantry();
+		if (RalliedGarrison != CurrentRalliedCount)
 		{
-			SetSquadPhase(ECMOutpostSquadPhase::Advance);
+			RalliedGarrison = CurrentRalliedCount;
+			RefreshStatusLabel();
+			ForceNetUpdate();
+		}
+
+		const int32 RequiredStrength = MinimumAssaultStrength <= 0
+			? GarrisonLimit
+			: FMath::Clamp(MinimumAssaultStrength, 1, GarrisonLimit);
+		const bool bSquadTogether = ActiveGarrison >= RequiredStrength
+			&& RalliedGarrison == ActiveGarrison;
+
+		if (!bSquadTogether)
+		{
+			// A late soldier or a casualty breaks readiness and restarts
+			// the short cohesion hold. There is no silent timeout that
+			// dispatches an incomplete formation.
+			AssemblyReadySince = -1.0f;
+		}
+		else
+		{
+			if (AssemblyReadySince < 0.0f)
+			{
+				AssemblyReadySince = Now;
+			}
+			if (Now - PhaseStartedAt >= FMath::Max(AssemblySeconds, 0.0f)
+				&& Now - AssemblyReadySince >= FMath::Max(RallyReadyHoldSeconds, 0.0f))
+			{
+				SetSquadPhase(ECMOutpostSquadPhase::Advance);
+			}
 		}
 	}
 	else if (SquadPhase == ECMOutpostSquadPhase::Advance)
@@ -510,7 +563,9 @@ void ACMFactionOutpost::RefreshStatusLabel()
 	const FString PhaseStatus = bSquadContactActive
 		? FString::Printf(TEXT("%s - CONTACT"), PhaseText)
 		: FString(PhaseText);
-	FString Status = TEXT("Garrison ready");
+	FString Status = SquadPhase == ECMOutpostSquadPhase::Assembly
+		? FString::Printf(TEXT("Rallying %d/%d"), RalliedGarrison, ActiveGarrison)
+		: FString(TEXT("Garrison ready"));
 	if (ActiveGarrison < GarrisonLimit && ReserveRemaining <= 0)
 	{
 		Status = TEXT("RESERVES EXHAUSTED");
@@ -540,5 +595,6 @@ void ACMFactionOutpost::GetLifetimeReplicatedProps(
 	DOREPLIFETIME(ACMFactionOutpost, ReserveRemaining);
 	DOREPLIFETIME(ACMFactionOutpost, TotalSoldiersDeployed);
 	DOREPLIFETIME(ACMFactionOutpost, SquadPhase);
+	DOREPLIFETIME(ACMFactionOutpost, RalliedGarrison);
 	DOREPLIFETIME(ACMFactionOutpost, bSquadContactActive);
 }
