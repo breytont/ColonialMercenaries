@@ -275,3 +275,88 @@ If geometry looks out of place on imported terrain, move or tune this
 single Actor; do not edit each generated instance separately.
 
 This is a design-testing tool, not final procedural art.
+
+## Field test #1 — actual squad assembly before assault (Oct 26)
+
+User confirmed both factions traverse the generated terrain, use the relay
+compound, engage, withdraw and reinforce. They increased garrison/wave sizes
+and shortened reinforcement cooldowns to exercise battles faster. The
+remaining issue was that a soldier could leave alone to assault when the
+outpost garrison *count* recovered, despite its teammates still being back
+at the base. This was consistent with the old `AssemblySeconds` timer-only
+transition in `CheckGarrison()`.
+
+### Narrow AI fix on this branch
+
+The outpost commander now requires **physical squad assembly** to switch
+from **ASSEMBLING** to **ADVANCING**:
+
+- Every living soldier from this outpost must be inside
+  `RallySlotRadius` (default **250 cm**) of its *own* assigned
+  `GetSquadSlot(..., Assembly)` position.
+- `MinimumAssaultStrength = 0` (default) waits for the full
+  `TargetGarrisonSize`; a positive configured value permits deliberate
+  understrength assaults, but still requires **every currently living**
+  member to rally. This field is in **Faction Outpost | Squad | Assembly**.
+- `AssemblySeconds` (existing default **5s**) still enforces the
+  minimum time since entering Assembly.
+- `RallyReadyHoldSeconds` (default **1s**) requires the full squad to
+  stay rallied briefly. If anyone falls out of range or dies, the hold
+  timer resets.
+- During Assembly, overhead status shows
+  **Rallying N/<living garrison>**, replicated for multiplayer.
+- No new Actor Ticks, all global actor scans avoided, and no changes to
+  existing soldier weapon, retaliation, retreat covering fire, tactics
+  or independent spawning code.
+
+**Design consequence:** A formation that cannot reach its assembly
+slots, or cannot restore the configured minimum garrison due to exhausted
+reserves, will **wait** rather than launching a lone soldier. This is
+intentional for this test, and makes broken approach/NavMesh visible.
+
+### Playtest
+
+1. Save & commit the newly placed `Relay_Compound`, NavMesh volume,
+   Red/Blue bases and any edited external-actor packages; keep the
+   current local map changes when pulling new C++.
+2. Close Unreal, pull this feature branch, build
+   **Development Editor | Win64**, reopen `Lvl_ContestedFrontier`.
+3. Start a one-player PIE with both outposts on Assault, target size
+   **3** and accelerated finite reinforcement settings.
+4. Observe a squad lose two soldiers and withdraw. After reinforcements,
+   the label should say **ASSEMBLING | Rallying N/3** until the
+   survivor and both new recruits are near their respective base
+   rally slots; only then switch to ADVANCING.
+5. Increase target size to **5 or 6**, repeat. Verify no single soldier
+   leaves prematurely. If the formation stays assembling, visually
+   inspect member NavMesh routes and assigned positions.
+6. Retest original damage retaliation and retreat covering fire, and
+   two-player authoritative garrisons/phase/label replication.
+7. Commit successful UE test map adjustments and document results.
+
+**Limit:** This adds departure cohesion, not a full leader-led formation
+in transit. Reinforcements that arrive while a squad is already in
+**ADVANCING** are still treated as independent reinforcements,
+and a squad may naturally spread during combat. Maintain a future
+separate tactical feature for leader selection, spacing/formation
+regrouping during maneuvers, cover evaluation/reservation, suppressive
+fire, unit roles and personality differences.
+
+### Later tactical-AI work, after contract vertical slice
+
+1. Squad leader & maneuvers — explicit Move/Assault/Hold/Regroup,
+   rally completion events, leader incapacitation fallback, staggered
+   movement for fire teams.
+2. Real cover search — nearby nav-reachable positions with occlusion,
+   protection from current threats, occupancy/reservation, and a
+   stable return-to-objective policy. Grounded military behavior,
+   not supernatural knowledge of enemies.
+3. Distinct infantry roles through existing
+   `UCMCombatTactics` extension point — rifleman, assault, marksman,
+   support, each with different engagement distances, reposition
+   priorities and cooldowns.
+4. Bounded tactical variation — soldier skill, aggressiveness,
+   self-preservation, and cohesion preferences selected via editable
+   data/config, while retaining identical authoritative faction
+   mechanics. Avoid purely random behavior that undermines squad
+   objectives.
