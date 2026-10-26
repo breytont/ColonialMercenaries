@@ -169,3 +169,66 @@ Lvl_ContestedFrontier/**` as well as the `.umap`.
 - `Lvl_FactionTest` remains available for regression tests.
 - The new level provides clear physical locations for the *next*
   milestone: minimal mercenary contract, reward and procurement.
+
+## Workflow reassessment — choose a hybrid landscape approach
+
+### Decision
+
+For the first playable blockout, **prefer an authored 16-bit, 505 x 505
+heightmap for macro terrain**, with manual Unreal Landscape editing reserved
+for gameplay-sensitive local corrections. The existing 505 x 505 Landscape
+is compatible; the import can be applied to an existing Landscape without
+re-creating the map. **Make a Save All + Git checkpoint first**, because
+importing height values can overwrite existing sculpting.
+
+The macro heightmap should intentionally reserve approachable, reasonably
+level footprints near Red FOB (-110m, 0), Blue FOB (+110m, 0), relay
+(0, 0), HQ (0, -100m), and AA (0, +95m), plus a broad north ridge and
+lower southern maintenance route. Generate this terrain reproducibly
+(e.g., a small Python script and exported 16-bit grayscale PNG/R16) rather
+than depending exclusively on hundreds of manual brush strokes.
+
+Heightmaps encode only elevation. They **do not** create buildings, roads,
+collision-enabled cover, NavMesh, AI tactics or mission sites; those stay
+authored and verified in Unreal.
+
+### Hybrid workflow
+
+1. Draw/build an overhead gameplay blockout first: objective distances,
+   routes, slopes, sight lines, spawn/retreat pads, then generate/import
+   a macro heightmap to suit that plan.
+2. Put local adjustments on Landscape Edit Layers where possible. Smooth,
+   Flatten and Ramp should maintain navigable approaches; preserve
+   rollback options and avoid unreviewed re-import over polished edits.
+3. Add road geometry and terrain conforming with **Landscape Splines**
+   after the macro terrain is accepted. Avoid hand-painting all road grades.
+4. Add buildings/cover as reusable modular pieces. Keep landscape/foliage
+   decoration decoupled from the combat logic.
+5. Consider the **PCG framework** later for vegetation and rocks, driven
+   by exclusion zones around roads, outposts, and NavMesh walkways.
+   PCG is not a substitute for encounter layout.
+6. Test soldier navigation, firing lines, target acquisition and retreat
+   after each major geographic change. The current short 950-cm weapon
+   range requires an explicit future ranged-combat tuning pass.
+
+### Decision checkpoints
+
+At the end of **macro terrain**, **first fully navigable graybox**, and
+**first successful squad battle**, explicitly review:
+- What is currently slow, repetitive, or fragile?
+- What alternate tooling could reduce that work (scripts, heightmaps,
+  Unreal editor tools, landscape splines, PCG, modular kit)?
+- Does the alternative preserve UE5.8 compatibility, source control,
+  iteration speed, and the GDD's tactical-grounded intent?
+- Can it be validated by a reversible, small test rather than a major
+  rewrite?
+
+Prefer the approach that gets a **real gameplay test** sooner, not the
+approach that merely produces the most detailed environment.
+
+### UE5.8 references
+
+- https://dev.epicgames.com/documentation/unreal-engine/importing-and-exporting-landscape-heightmaps-in-unreal-engine
+- https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-edit-layers-in-unreal-engine
+- https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-splines-in-unreal-engine
+- https://dev.epicgames.com/documentation/unreal-engine/using-pcg-generation-modes-in-unreal-engine
