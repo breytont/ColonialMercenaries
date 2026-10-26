@@ -232,3 +232,46 @@ approach that merely produces the most detailed environment.
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-edit-layers-in-unreal-engine
 - https://dev.epicgames.com/documentation/en-us/unreal-engine/landscape-splines-in-unreal-engine
 - https://dev.epicgames.com/documentation/unreal-engine/using-pcg-generation-modes-in-unreal-engine
+
+## Relay compound blockout — reusable C++ actor (Stage C)
+
+Added `ACMRelayCompoundBlockout` in
+`Source/ColonialMercenaries/World/CMRelayCompoundBlockout.h/.cpp`.
+It builds collision-enabled static-mesh instances from the built-in engine
+cube, avoiding dozens of manually positioned individual Actors. Its geometry
+is created in `OnConstruction` and can be adjusted in the placed actor's
+Details panel; no Tick, third-party assets, or network replication.
+
+**Setup:** Save All, close Unreal, commit any uncommitted level changes
+(the existing `Relay_Foundation` cube and `Relay_CapturePoint`).
+Fetch/pull the feature branch, build Development Editor/Win64, then reopen
+`Lvl_ContestedFrontier`. Search Place Actors for
+**CM Relay Compound Blockout**. Place one instance at
+**Location (0, 0, 100), Rotation (0, 0, 0), Scale (1, 1, 1)**. Keep the
+existing **Relay_Foundation** and **Relay_CapturePoint** in the level:
+the former is the interior floor; the latter continues to own capture
+logic and its current position.
+
+Layout defaults:
+- Perimeter: ~44 x 36m, ~1.6m-tall walls, **four 10m-wide entrances**
+  to preserve flanking routes and multiple faction attack approaches.
+- Staggered interior/exterior low cover plus one utility hut/mast on the
+  northern side; the central `CMContestedPoint` stays separate and clear.
+- All boxes block gameplay collision and Visibility; their authored
+  collision should carve the NavMesh once a bounds volume is placed.
+- Use `HalfExtentX`, `HalfExtentY`, `EntranceHalfWidth`,
+  `WallHeight`, `CoverHeight`, `FoundationTopOffset`, and
+  `bPlaceUtilityHut` to tune the blockout rapidly.
+- The actor's geometry starts at its own origin elevation, while
+  platform cover is raised an extra 20cm to match
+  `Relay_Foundation` (previously placed at Z=110, scale Z=0.2).
+
+**Validation:** Editor placement must produce four visibly clear
+entrances and no overlap with the existing capture actor. Once NavMesh
+is added, verify green navigation on both sides of each entrance, with
+no intended 2m lip or raised platform blocking infantry access. Tweak
+outer terrain / foundation flushness or add ramps if navigation fails.
+If geometry looks out of place on imported terrain, move or tune this
+single Actor; do not edit each generated instance separately.
+
+This is a design-testing tool, not final procedural art.
