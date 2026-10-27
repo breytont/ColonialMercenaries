@@ -151,3 +151,29 @@ asset directory:
 GitHub commits are source changes, **not an Unreal compile or PIE test**.
 Any compile, input-binding, collision or multiplayer defects must be
 fixed based on editor/build feedback before merging PR #16.
+
+## Playtest checkpoint — October 27, 2026
+
+**User-tested in single-player PIE:** the full HQ terminal → relay
+intelligence cache → HQ payout interaction loop worked as expected.
+Input mapping `IA_Interact` bound to **F**, both linked world actors,
+contract stages and terminal world-space feedback were exercised.
+This is user-confirmed functional behavior, not merely a source-code build.
+
+**Remaining release checks:**
+- [ ] 2-player listen-server PIE: either player can accept, recover
+      and turn in; the shared contract state/balance is identical in
+      both windows.
+- [ ] Confirm payment is awarded **once** even when both players
+      interact during and after the payout.
+- [ ] Confirm unrelated Red/Blue war/capture logic stays independent
+      and player-faction neutrality still works.
+- [ ] Confirm 2 independent PlayerStarts inside HQ and no spawn overlap.
+- [ ] Save/commit/push final modified `Lvl_ContestedFrontier` map,
+      relevant `__ExternalActors__`, `IA_Interact`, `IMC_Default`
+      and player Blueprint before requesting PR merge.
+
+**Development review:** Next pass should prioritize multiplayer and
+feedback on interaction clarity. Do not assume the temporary shared
+contract ledger, static world labels, or lack of save persistence
+fulfills the final finance/contract design.
