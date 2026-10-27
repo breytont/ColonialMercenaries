@@ -44,6 +44,10 @@ public:
     UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Contracts")
     int32 GetCompanyCredits() const { return CompanyCredits; }
 
+    /** Read-only objective pointer for the local HUD. No gameplay authority. */
+    UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Contracts")
+    ACMPrototypeIntelCache* GetIntelCache() const { return IntelCache; }
+
     /** Called by an authenticated, server-owned player's interaction RPC. */
     void TryInteract(AColonialMercenariesCharacter* Player);
 
