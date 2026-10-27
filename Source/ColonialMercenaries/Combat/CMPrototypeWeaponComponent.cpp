@@ -258,6 +258,20 @@ void UCMPrototypeWeaponComponent::MulticastShotFeedback_Implementation(
 	OnShotVisuals.Broadcast(FVector(Start), FVector(End), bBlockingHit);
 }
 
+float UCMPrototypeWeaponComponent::GetLocalReticleBloom() const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0.0f;
+	}
+	const float Elapsed = FMath::Max(
+		0.0f, World->GetTimeSeconds() - LocalReticleBloomTimeSeconds);
+	return FMath::Clamp(LocalReticleBloomAtLastShot
+		- Elapsed * FMath::Max(ReticleBloomRecoveryPerSecond, 0.05f),
+		0.0f, 1.0f);
+}
+
 void UCMPrototypeWeaponComponent::ClientApplyRecoil_Implementation()
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
@@ -271,6 +285,13 @@ void UCMPrototypeWeaponComponent::ClientApplyRecoil_Implementation()
 	{
 		return;
 	}
+
+	// Only approved shots expand the local circle. Bloom accumulates under
+	// sustained fire and gradually recovers after releasing LMB.
+	LocalReticleBloomAtLastShot = FMath::Clamp(
+		GetLocalReticleBloom() + FMath::Clamp(ReticleBloomPerShot, 0.0f, 1.0f),
+		0.0f, 1.0f);
+	LocalReticleBloomTimeSeconds = GetWorld()->GetTimeSeconds();
 
 	// Cosmetic first-person controller feedback only. This cannot affect
 	// the *already resolved* server trace for the current shot.
