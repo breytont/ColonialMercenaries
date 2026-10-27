@@ -130,9 +130,10 @@ void ACMPrototypeIntelCache::TryInteract(AColonialMercenariesCharacter* Player)
             this, &ACMPrototypeIntelCache::OnCarrierControllerDestroyed);
     }
 
-    // A visible, tangible briefcase-sized object travels with its carrier.
-    // The mesh has no interaction collision while carried; otherwise F
-    // near HQ could select the carried intel instead of the terminal.
+    // Keep the replicated actor attached as authoritative mission cargo,
+    // but hide its placeholder mesh while carried. The package will later
+    // be represented in inventory instead of obstructing the camera.
+    // Its collision also stays off so F near HQ selects the terminal.
     AttachToComponent(Player->GetRootComponent(),
         FAttachmentTransformRules::SnapToTargetNotIncludingScale);
     SetActorRelativeLocation(FVector(-35.0f, 42.0f, 25.0f));
@@ -239,7 +240,12 @@ void ACMPrototypeIntelCache::RefreshPresentation()
     }
 
     const bool bOnGround = !bDelivered && !IsValid(Carrier);
-    CacheBody->SetVisibility(!bDelivered);
+    // Only render the placeholder item when it can be picked up on the
+    // ground. While carried it remains attached, owned by the same player
+    // and replicated, but is not shown in any player's camera.
+    // Both pickup and drop call this on the server; OnRep_Carrier
+    // applies the same presentation for each client.
+    CacheBody->SetVisibility(bOnGround);
     CacheBody->SetCollisionEnabled(bOnGround
         ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
     StatusLabel->SetVisibility(bOnGround);
