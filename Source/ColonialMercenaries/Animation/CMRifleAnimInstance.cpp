@@ -88,8 +88,22 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
 	}
 
+	// The player always has a rifle equipped in this prototype.
+	// Keep the existing upper-body rifle pose active at the ready even
+	// when RMB is released. Otherwise the unarmed locomotion pose lowers
+	// hand_r (and the attached real muzzle) toward the floor, making true
+	// muzzle-forward hip shots fire into the ground.
+	//
+	// CMIsAiming retains its real RMB state for camera/ADS behavior. The
+	// same barrel-forward weapon now works from both non-ADS and ADS.
+	// A separate lower hip-ready pose and weapon-equipped state can be
+	// authored once the equipment/locomotion system expands.
+	const bool bPlayerWithRifle =
+		Cast<AColonialMercenariesCharacter>(Character) != nullptr;
+	const float DesiredRifleAlpha = (bPlayerWithRifle || CMIsAiming)
+		? 1.0f : 0.0f;
 	CMRifleAimAlpha = FMath::FInterpTo(
-		CMRifleAimAlpha, CMIsAiming ? 1.0f : 0.0f,
+		CMRifleAimAlpha, DesiredRifleAlpha,
 		FMath::Max(DeltaSeconds, 0.0f),
 		FMath::Max(AimPoseBlendSpeed, 0.1f));
 
