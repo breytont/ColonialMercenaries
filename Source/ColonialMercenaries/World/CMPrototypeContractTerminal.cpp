@@ -84,7 +84,18 @@ void ACMPrototypeContractTerminal::TryInteract(AColonialMercenariesCharacter* Pl
         break;
 
     case ECMPrototypeContractStage::IntelRecovered:
-        // The terminal is the only authority that grants currency.
+        // A shared "recovered" contract flag is NOT proof of delivery.
+        // Only the person who physically carries the replicated package
+        // into HQ can turn it in. This call consumes the item once.
+        if (!IsValid(IntelCache) || !IntelCache->FinalizeDelivery(Player))
+        {
+            UE_LOG(LogTemp, Display,
+                TEXT("CM CONTRACT: %s attempted turn-in without physically carrying intel."),
+                *GetNameSafe(Player));
+            return;
+        }
+
+        // The terminal remains the sole authority that grants currency.
         // Repeated interaction after payment can't duplicate rewards.
         CompanyCredits = FMath::Clamp(
             static_cast<int64>(CompanyCredits) + RewardCredits,
@@ -141,7 +152,7 @@ void ACMPrototypeContractTerminal::RefreshStatusLabel()
         Task = TEXT("ACTIVE: RECOVER RELAY INTEL\nFind the cache at the relay");
         break;
     case ECMPrototypeContractStage::IntelRecovered:
-        Task = TEXT("[F] TURN IN RELAY INTEL\nReturn for payment");
+        Task = TEXT("RELAY INTEL IN TRANSIT\nCarrier: [F] deliver at HQ");
         break;
     case ECMPrototypeContractStage::Paid:
         Task = TEXT("CONTRACT COMPLETE - PAID");
