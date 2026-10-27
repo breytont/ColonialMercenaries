@@ -21,11 +21,13 @@ public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 
-	/** Smooth 0..1 pose weight for the upper-body rifle aiming layer. */
+	/** Smooth 0..1 upper-body rifle-ready/aiming blend. An equipped player
+	 * keeps the rifle raised even when RMB shoulder aim is released.
+	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	float CMRifleAimAlpha = 0.0f;
 
-	/** True while the character has right-mouse aiming enabled. */
+	/** RMB shoulder-aim state; independent of rifle-ready pose visibility. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	bool CMIsAiming = false;
 
@@ -56,7 +58,7 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	FVector CMLeftHandGripInRightHandSpace = FVector::ZeroVector;
 
-	/** Higher rates transition to rifle-ready stance more quickly. */
+	/** Higher rates transition into the equipped rifle pose more quickly. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation|Tuning",
 		meta=(ClampMin="0.1", UIMin="0.1"))
 	float AimPoseBlendSpeed = 10.0f;
