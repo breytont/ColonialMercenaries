@@ -158,16 +158,21 @@ void ACMPrototypeIntelCache::DropPhysicalIntel()
         FHitResult Hit;
         FCollisionQueryParams Params(SCENE_QUERY_STAT(CMIntelDrop), false);
         Params.AddIgnoredActor(this);
-        if (World->LineTraceSingleByChannel(
+        FCollisionObjectQueryParams WorldGeometry;
+        WorldGeometry.AddObjectTypesToQuery(ECC_WorldStatic);
+        // Trace only world geometry; never put the dropped briefcase
+        // on top of the dying carrier's Visibility-blocking capsule.
+        if (World->LineTraceSingleByObjectType(
             Hit,
             LastCarriedPosition + FVector(0.0f, 0.0f, 150.0f),
             LastCarriedPosition - FVector(0.0f, 0.0f, 1800.0f),
-            ECC_Visibility, Params) && Hit.bBlockingHit)
+            WorldGeometry, Params) && Hit.bBlockingHit)
         {
             DropPosition.Z = Hit.ImpactPoint.Z;
         }
     }
     SetActorLocation(DropPosition, false);
+    SetActorRotation(FRotator::ZeroRotator);
 
     UE_LOG(LogTemp, Display,
         TEXT("CM INTEL: Carrier lost. Intel dropped at %s."),
@@ -191,7 +196,10 @@ void ACMPrototypeIntelCache::OnCarrierActorDestroyed(AActor* DestroyedActor)
 
 void ACMPrototypeIntelCache::OnCarrierControllerDestroyed(AActor* DestroyedActor)
 {
-    if (DestroyedActor == CarrierController.Get())
+    // This callback is bound only to the current carrier's controller;
+    // by the time an actor reports destruction IsValid may already be
+    // false, so do not rely on weak-reference identity here.
+    if (HasAuthority() && Carrier)
     {
         DropPhysicalIntel();
     }
