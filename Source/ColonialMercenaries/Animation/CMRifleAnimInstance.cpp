@@ -32,6 +32,7 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		CMIsAiming = false;
 		CMRifleAimAlpha = 0.0f;
+		CMShoulderAimAlpha = 0.0f;
 		CMGroundSpeed = 0.0f;
 		CMMovementDirection = 0.0f;
 		CMIsInAir = false;
@@ -104,6 +105,14 @@ void UCMRifleAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		? 1.0f : 0.0f;
 	CMRifleAimAlpha = FMath::FInterpTo(
 		CMRifleAimAlpha, DesiredRifleAlpha,
+		FMath::Max(DeltaSeconds, 0.0f),
+		FMath::Max(AimPoseBlendSpeed, 0.1f));
+
+	// Distinguish the active rifle from *how* it is held. This scalar
+	// lets the same AnimGraph blend an authored at-hip pose into the
+	// existing ADS/AO_Rifle upper-body pose, without reverting to unarmed.
+	CMShoulderAimAlpha = FMath::FInterpTo(
+		CMShoulderAimAlpha, CMIsAiming ? 1.0f : 0.0f,
 		FMath::Max(DeltaSeconds, 0.0f),
 		FMath::Max(AimPoseBlendSpeed, 0.1f));
 
