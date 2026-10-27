@@ -34,15 +34,17 @@ never once per connected player. Initial balance is configurable.
 
 - Interaction at the HQ terminal starts the mission, if the
   linked cache is configured.
-- Interaction with that cache at the relay advances to recovered.
-- Interaction at HQ after recovery pays the company and marks the
+- Interaction with the cache at the relay advances to recovered **and physically attaches the intel prop to that specific player's character**, with replicated carrier identity.
+- **Only the physical carrier** may deliver at HQ: interaction after recovery pays the company and marks the
   contract complete.
 - Soldiers capturing the relay point cannot retrieve the cache.
 - No automatic payment on relay ownership change.
-- Killing the player does not duplicate or automatically fail the
-  company-wide contract; a surviving coop teammate can finish it.
+- If the carrier is incapacitated or its character/controller is destroyed,
+  the physical package drops near that position. A surviving teammate must
+  retrieve it and physically bring it to HQ; the mission stays active.
 - Available/active/completed state and balance are replicated on
-  the terminal. Cache recovery state replicates separately.
+  the terminal. The cache replicates its **carrier and delivered state**;
+  its actor attachment follows the carrier.
 
 ## Architecture and ownership
 
@@ -59,9 +61,10 @@ never once per connected player. Initial balance is configurable.
   RPC** containing a candidate actor. The server rechecks actor type,
   player alive/controller, full 3D distance (≤300cm) and an unobstructed
   visibility trace, then dispatches to the terminal or cache.
-- Both interactables are query-only WorldDynamic actors and do not
-  obstruct player navigation or bullets; their mesh blocks the
-  Visibility channel for interaction traces.
+- Ground interactables use query-only WorldDynamic collision and do not
+  obstruct player navigation or bullets; their mesh blocks the Visibility
+  channel for interaction traces. **Carried intel disables its interaction
+  collision** so pressing F at HQ selects the terminal, not the prop.
 - No Actor Tick. World-space status labels show the contract step and
   current funds.
 - There is **no gameplay money in PlayerState yet**, no save-game,
@@ -113,10 +116,13 @@ asset directory:
 2. Walk up the service road and into the contested relay compound.
    The existing Red/Blue battle should continue unaffected.
 3. Approach **Relay_IntelCache** and press **F**.
-   Expect cache to say **RELAY INTEL RECOVERED** and HQ contract
-   stage to become **IntelRecovered**.
-4. Return to HQ and interact once.
+   Expect the visible intel briefcase to attach to that **player**, while
+   HQ contract stage becomes **IntelRecovered**. The ground cache
+   disappears because it is physically carried, not because the item
+   teleported to a shared inventory.
+4. Return to HQ **as the carrier** and interact once.
    Expect **CONTRACT COMPLETE - PAID** and company funds = **1500**.
+   First verify that an unladen teammate at HQ **cannot** claim payment.
 5. Press F repeatedly. Balance must **stay 1500**.
 6. Stop PIE; current design intentionally resets the prototype
    state and balance on a new session. Persistence is a separate
@@ -125,8 +131,14 @@ asset directory:
 ### 2-player multiplayer acceptance test
 
 - Both clients observe the same stage and company funds.
-- Either player can accept, either can retrieve the cache, either can
-  turn in the job; exactly **one company payment** of 1500.
+- Either player can accept and either can retrieve the cache, but **only
+  the player currently carrying the physical package** can turn it in.
+  Exactly **one company payment** of 1500.
+- Have **Player 1 remain at HQ** while Player 2 recovers the intel.
+  Player 1's attempt to turn it in must produce **no payment**.
+  Player 2 must travel back and deliver it.
+- Test Player 2 becoming incapacitated before delivery: the cache should
+  drop near the body, then Player 1 can retrieve and deliver it.
 - An NPC capturing the relay point alone must not advance the
   contract. An unaligned/neutral player remains free to interact
   without automatically becoming hostile to Red or Blue.
@@ -140,8 +152,10 @@ asset directory:
   HQ terminal into persistent, replicated company systems.
 - Adopt data assets defining contracts, employers, prerequisites,
   rewards, expiry, objectives, and world-state links; build UI.
-- Make intel a recoverable item with inventory and loss/recovery
-  rules when the carrier becomes incapacitated.
+- Replace the single-purpose visible carried intel actor with proper
+  inventory item/equipment and handoff interfaces later; this prototype
+  already drops on incapacitation, but **intentional handoff and broader
+  inventory management are not implemented**.
 - Add actual employer relationship and red/blue war consequences.
 - Add procurement with authoritative spending, AA support restriction
   and save/load; satisfy remaining Prototype 0.1 acceptance criteria.
@@ -177,3 +191,32 @@ This is user-confirmed functional behavior, not merely a source-code build.
 feedback on interaction clarity. Do not assume the temporary shared
 contract ledger, static world labels, or lack of save persistence
 fulfills the final finance/contract design.
+
+## Multiplayer recovery correction — October 27, 2026
+
+**Observed:** The user confirmed 2-player PIE initially allowed Player 2
+at the relay to interact with the intel, while Player 1 remained at HQ
+and collected payment. All players shared the `IntelRecovered` state,
+so the game incorrectly equated mission progress with physical delivery.
+
+**Implemented in code, pending build/PIE test:**
+- Recovery now attaches the existing replicated cache actor to the
+  retrieving player's character; `Carrier` replicates.
+- Only that carrier can submit the same physical cache at HQ and
+  receive the one-off company payment. The non-carrier's attempted
+  turn-in is rejected on the server.
+- On incapacitation or Pawn/Controller destruction, the cache detaches,
+  drops to nearby world-static ground, re-enables world interaction,
+  and can be picked up by the remaining teammate.
+- No Tick, new input mappings, or new level objects required. Existing
+  `IA_Interact`, `HQ_ContractTerminal`, `Relay_IntelCache` and
+  reciprocal level references are reused.
+- Prototype limitation: one package, no explicit intentional handoff,
+  no saved inventory, and no persistence across PIE restarts.
+
+**Acceptance case:** Player 1 takes the contract and stays at HQ.
+Player 2 retrieves the intel. Player 1 **must not** be paid when
+pressing F; Player 2 returns and **must** be paid once. Repeat with
+Player 2 incapacitated in the field: a new carrier must pick up the
+dropped object and perform delivery. Finish with ordinary faction
+warfare and 2-player replication regression.
