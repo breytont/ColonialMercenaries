@@ -4,6 +4,9 @@
 #include "Combat/CMPrototypeWeaponComponent.h"
 #include "Combat/CMHealthComponent.h"
 #include "Combat/CMFactionComponent.h"
+#include "World/CMPrototypeContractTerminal.h"
+#include "World/CMPrototypeIntelCache.h"
+#include "Engine/OverlapResult.h"
 #include "UI/CMPrototypeVitalsWidget.h"
 #include "UI/CMDownedMarkerWidget.h"
 #include "Components/WidgetComponent.h"
@@ -281,6 +284,11 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 
 		// These actions are assigned in BP_ThirdPersonCharacter and mapped
 		// through IMC_Default. Existing move, look and jump remain unchanged.
+		if (InteractAction)
+		{
+			EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started,
+				this, &AColonialMercenariesCharacter::InteractWithNearbyContract);
+		}
 		if (FireAction)
 		{
 			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started,
@@ -381,6 +389,98 @@ void AColonialMercenariesCharacter::Fire()
 	if (IsLocallyControlled() && !IsIncapacitated() && IsValid(PrototypeWeapon))
 	{
 		PrototypeWeapon->RequestFire();
+	}
+}
+
+void AColonialMercenariesCharacter::InteractWithNearbyContract()
+{
+	if (!IsLocallyControlled() || IsIncapacitated() || !GetWorld())
+	{
+		return;
+	}
+
+	// Query only nearby WorldDynamic interactive prototypes. The existing
+	// collision-enabled NPC and terrain actors are not enumerated globally.
+	TArray<FOverlapResult> Overlaps;
+	FCollisionObjectQueryParams ObjectTypes;
+	ObjectTypes.AddObjectTypesToQuery(ECC_WorldDynamic);
+	FCollisionQueryParams Params;
+	Params.AddIgnoredActor(this);
+
+	GetWorld()->OverlapMultiByObjectType(
+		Overlaps, GetActorLocation(), FQuat::Identity, ObjectTypes,
+		FCollisionShape::MakeSphere(260.0f), Params);
+
+	AActor* ClosestContractObject = nullptr;
+	float BestDistSq = FMath::Square(300.0f);
+	for (const FOverlapResult& Hit : Overlaps)
+	{
+		AActor* Candidate = Hit.GetActor();
+		if (!IsValid(Candidate)
+			|| (!Candidate->IsA<ACMPrototypeContractTerminal>()
+				&& !Candidate->IsA<ACMPrototypeIntelCache>()))
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(
+			GetActorLocation(), Candidate->GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			ClosestContractObject = Candidate;
+		}
+	}
+
+	if (IsValid(ClosestContractObject))
+	{
+		ServerTryContractInteract(ClosestContractObject);
+	}
+}
+
+void AColonialMercenariesCharacter::ServerTryContractInteract_Implementation(
+	AActor* TargetActor)
+{
+	// Server owns all decisions and does not trust the supplied actor,
+	// position, line-of-sight, character health or contract progress.
+	if (!HasAuthority() || !IsValid(TargetActor) || !GetWorld()
+		|| TargetActor->GetWorld() != GetWorld() || IsIncapacitated()
+		|| !IsValid(GetController()))
+	{
+		return;
+	}
+
+	const bool bTerminal = TargetActor->IsA<ACMPrototypeContractTerminal>();
+	const bool bIntel = TargetActor->IsA<ACMPrototypeIntelCache>();
+	if ((!bTerminal && !bIntel)
+		|| FVector::DistSquared(
+			GetActorLocation(), TargetActor->GetActorLocation())
+			> FMath::Square(300.0f))
+	{
+		return;
+	}
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(CMContractInteraction), false);
+	Params.AddIgnoredActor(this);
+	FHitResult Hit;
+	const FVector Start = GetActorLocation() + FVector(0.0f, 0.0f, 75.0f);
+	const FVector End = TargetActor->GetActorLocation()
+		+ FVector(0.0f, 0.0f, bIntel ? 45.0f : 70.0f);
+	const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+		Hit, Start, End, ECC_Visibility, Params);
+	if (!bBlocked || Hit.GetActor() != TargetActor)
+	{
+		return;
+	}
+
+	if (ACMPrototypeContractTerminal* Terminal =
+		Cast<ACMPrototypeContractTerminal>(TargetActor))
+	{
+		Terminal->TryInteract(this);
+	}
+	else if (ACMPrototypeIntelCache* Cache =
+		Cast<ACMPrototypeIntelCache>(TargetActor))
+	{
+		Cache->TryInteract(this);
 	}
 }
 
