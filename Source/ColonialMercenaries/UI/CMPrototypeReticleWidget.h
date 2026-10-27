@@ -52,7 +52,15 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> ReticleText;
 
-	/** Avoid rebuilding Slate text every frame while aim state is stable. */
-	bool bLastRenderedAimState = false;
-	bool bHasRenderedAimState = false;
+	/** Visual scale modifiers; the center always projects the true
+	 * muzzle hit point, not a camera-origin simulated shot.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float AimedCircleScale = 0.72f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float HipCircleScale = 1.00f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float MaxAdditionalBloomScale = 0.85f;
 };
