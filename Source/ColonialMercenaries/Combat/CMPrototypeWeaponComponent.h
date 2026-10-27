@@ -35,9 +35,8 @@ public:
 	void RequestFire();
 
 	/** Cosmetic prediction for the owning player's reticle. Uses the same
-	 * physical muzzle origin and camera/barrel aim mode as the server
-	 * but shows the CENTER of any server-side hip-fire spread cone.
-	 * It does not apply damage.
+	 * physical muzzle origin, barrel direction, and Visibility trace as
+	 * server-authoritative FireOnAuthority, but does not apply damage.
 	 *
 	 * This is not an authoritative hit guarantee: clients can differ from
 	 * the server due to replication delay and animation pose timing.
@@ -77,20 +76,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
 	bool bUseVisualRifleMuzzle = true;
 
-	/** When aiming, preserve the authored rifle barrel's physical direction.
-	 * Hip fire always converges toward the camera aim point instead of
-	 * shooting into the floor as the lowered rifle points down.
-	 * Disable to use camera convergence in both aim states.
+	/** Physically fire along the rifle's +X muzzle-forward axis in BOTH
+	 * ready/hip and shoulder-aim states. This must remain enabled for the
+	 * design's barrel-directed gunfire. Weapon animation, not bullet
+	 * redirection, must make the gun point toward the intended target.
+	 * The false path remains a diagnostic camera-assisted mode only.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Tuning")
 	bool bFireAlongMuzzleForward = true;
-
-	/** Server-authoritative half-angle of the random hip-fire cone.
-	 * Aimed shots currently retain their existing precise firing behavior.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Accuracy",
-		meta=(ClampMin="0.0", ClampMax="30.0", UIMin="0.0", UIMax="10.0"))
-	float HipFireSpreadDegrees = 2.5f;
 
 	/** Display temporary cyan tracer lines. Weapon VFX come later. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Debug")
@@ -162,9 +155,6 @@ private:
 
 	void FireOnAuthority();
 
-	/** Shared collision path. Only actual server shots randomize hip spread;
-	 * the local reticle predicts the center of the potential shot cone.
-	 */
-	bool TraceShot(FVector& OutStart, FVector& OutEnd, FHitResult& OutHit,
-		bool bApplyServerSpread) const;
+	/** Shared non-mutating trace used by server fire and local prediction. */
+	bool TraceShot(FVector& OutStart, FVector& OutEnd, FHitResult& OutHit) const;
 };
