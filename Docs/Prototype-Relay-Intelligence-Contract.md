@@ -232,9 +232,13 @@ Player 1 could remain at HQ while Player 2 retrieved intel. The
 physical-carrier fix prevents awarding payment to someone who is not
 carrying the package, while preserving the shared company contract.
 
+**Additional user test — October 27: PASSED**:
+- Player 2 recovered the intel, became incapacitated, and dropped it.
+  Player 1 successfully retrieved the same physical package and
+  delivered it to HQ for the reward. The contract stayed usable across
+  the carrier change.
+
 **Still explicitly to validate before finalizing the milestone:**
-- Carrier incapacitation and physical ground drop/recovery by another
-  teammate.
 - Disconnect/destruction behavior, including the package remaining
   recoverable without falling through terrain.
 - One-off reward against repeated simultaneous inputs from both players.
