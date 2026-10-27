@@ -8,7 +8,8 @@
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
 
-namespace
+// Use a named private namespace to avoid UE unity-build helper collisions.
+namespace CMHeadquartersGeometry
 {
     constexpr float CubeSizeCm = 100.0f;
 
@@ -118,14 +119,14 @@ void ACMMercenaryHeadquartersBlockout::OnConstruction(
     const float NorthCenter = (X + NorthGap) * 0.5f;
     for (const float Side : {-1.0f, 1.0f})
     {
-        AddBox(PerimeterBarriers,
+        CMHeadquartersGeometry::AddBox(PerimeterBarriers,
             FVector(Side * NorthCenter, Y, H * 0.5f),
             FVector(NorthRun, Thickness, H));
     }
-    AddBox(PerimeterBarriers,
+    CMHeadquartersGeometry::AddBox(PerimeterBarriers,
         FVector(0.0f, -Y, H * 0.5f),
         FVector(2.0f * X, Thickness, H));
-    AddBox(PerimeterBarriers,
+    CMHeadquartersGeometry::AddBox(PerimeterBarriers,
         FVector(-X, 0.0f, H * 0.5f),
         FVector(Thickness, 2.0f * Y, H));
 
@@ -133,17 +134,17 @@ void ACMMercenaryHeadquartersBlockout::OnConstruction(
     const float EastCenter = (Y + EastGap) * 0.5f;
     for (const float Side : {-1.0f, 1.0f})
     {
-        AddBox(PerimeterBarriers,
+        CMHeadquartersGeometry::AddBox(PerimeterBarriers,
             FVector(X, Side * EastCenter, H * 0.5f),
             FVector(Thickness, EastRun, H));
     }
 
     // Thin visual wayfinding marks; never let these block navigation.
-    AddBox(GroundMarkers, FVector(0.0f, Y - 380.0f, 2.5f),
+    CMHeadquartersGeometry::AddBox(GroundMarkers, FVector(0.0f, Y - 380.0f, 2.5f),
         FVector(600.0f, 160.0f, 5.0f));
-    AddBox(GroundMarkers, FVector(0.0f, Y - 850.0f, 2.5f),
+    CMHeadquartersGeometry::AddBox(GroundMarkers, FVector(0.0f, Y - 850.0f, 2.5f),
         FVector(600.0f, 160.0f, 5.0f));
-    AddBox(GroundMarkers, FVector(-80.0f, -280.0f, 2.5f),
+    CMHeadquartersGeometry::AddBox(GroundMarkers, FVector(-80.0f, -280.0f, 2.5f),
         FVector(420.0f, 240.0f, 5.0f)); // Future PlayerStart area.
 
     if (bShowOperationsModule)
@@ -152,10 +153,10 @@ void ACMMercenaryHeadquartersBlockout::OnConstruction(
         // faces the player yard, leaving room for a later separate,
         // interactive contract terminal. This building is NOT an interior.
         const float ModuleHeight = 360.0f;
-        AddBox(Facilities,
+        CMHeadquartersGeometry::AddBox(Facilities,
             FVector(950.0f, 550.0f, ModuleHeight * 0.5f),
             FVector(850.0f, 750.0f, ModuleHeight));
-        AddBox(Facilities,
+        CMHeadquartersGeometry::AddBox(Facilities,
             FVector(950.0f, 550.0f, ModuleHeight + 28.0f),
             FVector(980.0f, 860.0f, 56.0f));
     }
@@ -173,28 +174,28 @@ void ACMMercenaryHeadquartersBlockout::OnConstruction(
         {
             for (const float SideY : {-1.0f, 1.0f})
             {
-                AddBox(Facilities,
+                CMHeadquartersGeometry::AddBox(Facilities,
                     FVector(CanopyX + SideX * CanopyHalfX,
                         CanopyY + SideY * CanopyHalfY,
                         CanopyHeight * 0.5f),
                     FVector(55.0f, 55.0f, CanopyHeight));
             }
         }
-        AddBox(Facilities,
+        CMHeadquartersGeometry::AddBox(Facilities,
             FVector(CanopyX, CanopyY, CanopyHeight + 17.0f),
             FVector(1180.0f, 940.0f, 34.0f));
-        AddBox(GroundMarkers, FVector(CanopyX, CanopyY, 2.5f),
+        CMHeadquartersGeometry::AddBox(GroundMarkers, FVector(CanopyX, CanopyY, 2.5f),
             FVector(1040.0f, 760.0f, 5.0f));
     }
 
     if (bShowStorage)
     {
         // Small low props, separated so player can walk between them.
-        AddBox(Storage, FVector(500.0f, -880.0f, 65.0f),
+        CMHeadquartersGeometry::AddBox(Storage, FVector(500.0f, -880.0f, 65.0f),
             FVector(190.0f, 210.0f, 130.0f));
-        AddBox(Storage, FVector(810.0f, -880.0f, 65.0f),
+        CMHeadquartersGeometry::AddBox(Storage, FVector(810.0f, -880.0f, 65.0f),
             FVector(210.0f, 200.0f, 130.0f));
-        AddBox(Storage, FVector(1110.0f, -880.0f, 90.0f),
+        CMHeadquartersGeometry::AddBox(Storage, FVector(1110.0f, -880.0f, 90.0f),
             FVector(200.0f, 200.0f, 180.0f));
     }
 
