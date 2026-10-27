@@ -360,3 +360,64 @@ fire, unit roles and personality differences.
    data/config, while retaining identical authoritative faction
    mechanics. Avoid purely random behavior that undermines squad
    objectives.
+
+## Stage D: Mercenary headquarters graybox (GDD §13)
+
+GDD calls for a **physical, explorable headquarters** from which the
+company can inspect vehicles and equipment and reach contract,
+storage, personnel and financial interfaces. Prototype 0.1 needs the
+HQ as the starting point of the contract/payment/procurement loop.
+This first pass intentionally builds only **walkable exterior staging
+space**; building interiors, interaction actors, storage, transactions,
+company funds and player respawn mechanics are *not yet implemented*.
+
+Added reusable, editor-placeable
+`ACMMercenaryHeadquartersBlockout` under `World/`.
+It uses instanced engine cube meshes built in `OnConstruction`
+(no imported art assets, Tick, gameplay scans or replication):
+
+- Editable **36 × 32m** fenced yard; **10m north gate** faces the
+  relay compound and **8m east service gate** keeps a second path open.
+- Eastern **operations prefabricated module** marked as the future
+  contracts interface. The module is a solid exterior placeholder:
+  add a separate, network-authoritative `ContractTerminal` gameplay
+  actor later; do not give this graybox fake transaction functions.
+- Western **four-pillar open vehicle canopy** with a ~11×8m covered
+  footprint, three storage-prop silhouettes and nonblocking floor
+  markers indicating the future player assembly/spawn zone.
+- Structural geometry uses `BlockAll` collision; visual ground marks
+  have no collision and do not influence NavMesh. Adjustable
+  HalfWidthCm, HalfDepthCm, NorthGateHalfWidthCm,
+  EastGateHalfWidthCm, BarrierHeightCm, facility toggles.
+- HQ construction and outpost leadership remain entirely separate.
+
+**User integration:**
+1. In Unreal, **Save All**; close editor. Commit any unsaved map
+   and external actor files before pulling another remote commit.
+2. On `feature/contested-frontier-blockout`, Fetch/Pull origin.
+3. Build **Development Editor / Win64**, reopen
+   `Lvl_ContestedFrontier`.
+4. Search Place Actors for **CM Mercenary Headquarters Blockout**;
+   place one and set transform **Location (0, -10000, 0),
+   Rotation (0, 0, 0), Scale (1, 1, 1)**. Its primary gate
+   should point **north (+Y)** toward the relay.
+5. Inspect the footprint, open gates, terrain contact and shelter
+   clearance. The generated landscape's HQ plateau has elevation
+   ~0m at the facility center. If borders hover slightly over
+   curved edges, adjust placement or local terrain using Landscape
+   tools; do not alter the shared macro heightmap yet.
+6. Later, put an actual **PlayerStart** in the unblocked courtyard
+   near **world (0, -10250, ~120)**, verify no overlaps and
+   correct spawn in 1 and 2-player PIE. Place *multiple*
+   PlayerStarts for multiplayer, not several players at one pad.
+7. Before art pass, check ability to move from HQ to relay (open
+   north gate), unobstructed courtyard, and Future Contract Office
+   marker legibility.
+8. Save All and commit `.umap` and associated External Actors.
+
+**Future first mercenary contract seam:** an independently
+replicated contract-terminal actor at the operations module,
+connected to the contested point's ownership-change event. The
+contract should distinguish employer, objective, completion and
+payment state and validate all rewards on server. Do not modify
+territory capture code to make it a contract system.
