@@ -188,7 +188,7 @@ void ACMPrototypeIntelCache::OnCarrierIncapacitated()
 
 void ACMPrototypeIntelCache::OnCarrierActorDestroyed(AActor* DestroyedActor)
 {
-    if (DestroyedActor == Carrier)
+    if (DestroyedActor == Carrier.Get())
     {
         DropPhysicalIntel();
     }
