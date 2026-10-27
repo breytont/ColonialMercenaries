@@ -7,12 +7,17 @@
 
 class AColonialMercenariesCharacter;
 class ACMPrototypeContractTerminal;
+class AController;
 class USceneComponent;
 class UStaticMeshComponent;
 class UTextRenderComponent;
 class FLifetimeProperty;
 
-/** In-world, server-authoritative objective used by the first contract. */
+/**
+ * Physical world item. The company shares the contract, but an individual
+ * player physically carries the intel until delivery or incapacitation.
+ * No full inventory framework is required for this first mission.
+ */
 UCLASS(Blueprintable, meta=(DisplayName="CM Prototype Intel Cache"))
 class COLONIALMERCENARIES_API ACMPrototypeIntelCache : public AActor
 {
@@ -29,10 +34,27 @@ public:
         return ContractTerminal;
     }
 
+    UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Contracts")
+    AColonialMercenariesCharacter* GetCarrier() const
+    {
+        return Carrier;
+    }
+
+    UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Contracts")
+    bool IsCarriedBy(const AColonialMercenariesCharacter* Player) const
+    {
+        return !bDelivered && IsValid(Player) && Carrier == Player;
+    }
+
+    /** Only a linked HQ terminal can complete delivery on the server. */
+    bool FinalizeDelivery(AColonialMercenariesCharacter* Player);
+
+    /** Validated through the owning character's interaction RPC. */
     void TryInteract(AColonialMercenariesCharacter* Player);
 
 protected:
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Contracts|Components")
     TObjectPtr<USceneComponent> SceneRoot;
@@ -47,12 +69,35 @@ protected:
     UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Contracts|Setup")
     TObjectPtr<ACMPrototypeContractTerminal> ContractTerminal;
 
-    UPROPERTY(ReplicatedUsing=OnRep_Recovered, BlueprintReadOnly,
+    /** Server-selected physical carrier. Replicated to every player. */
+    UPROPERTY(ReplicatedUsing=OnRep_Carrier, BlueprintReadOnly,
         Category="Colonial Mercenaries|Contracts|State")
-    bool bRecovered = false;
+    TObjectPtr<AColonialMercenariesCharacter> Carrier;
+
+    UPROPERTY(ReplicatedUsing=OnRep_Delivered, BlueprintReadOnly,
+        Category="Colonial Mercenaries|Contracts|State")
+    bool bDelivered = false;
 
 private:
+    /** The actual player Controller may disappear before its Pawn. */
+    TWeakObjectPtr<AController> CarrierController;
+
     UFUNCTION()
-    void OnRep_Recovered();
-    void RefreshStatusLabel();
+    void OnRep_Carrier();
+
+    UFUNCTION()
+    void OnRep_Delivered();
+
+    UFUNCTION()
+    void OnCarrierIncapacitated();
+
+    UFUNCTION()
+    void OnCarrierActorDestroyed(AActor* DestroyedActor);
+
+    UFUNCTION()
+    void OnCarrierControllerDestroyed(AActor* DestroyedActor);
+
+    void UnbindCarrierDelegates();
+    void DropPhysicalIntel();
+    void RefreshPresentation();
 };
