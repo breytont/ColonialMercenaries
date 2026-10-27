@@ -45,7 +45,8 @@ void UCMPrototypeWeaponComponent::ServerRequestFire_Implementation()
 }
 
 bool UCMPrototypeWeaponComponent::TraceShot(
-	FVector& OutStart, FVector& OutEnd, FHitResult& OutHit) const
+	FVector& OutStart, FVector& OutEnd, FHitResult& OutHit,
+	bool bApplyServerSpread) const
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UWorld* World = GetWorld();
@@ -60,23 +61,26 @@ bool UCMPrototypeWeaponComponent::TraceShot(
 	FCollisionQueryParams TraceParams;
 	TraceParams.AddIgnoredActor(Character);
 
-	// Actual gun muzzle first, including its physical orientation when the
-	// pose is lowered, obstructed, or aiming above/below the horizon.
+	// Always originate the shot from the world-space rifle muzzle when
+	// available. Its downward-facing idle pose must NOT determine hip-fire
+	// direction; that direction converges on the camera's aim ray instead.
+	const AColonialMercenariesCharacter* PlayerCharacter =
+		Cast<AColonialMercenariesCharacter>(Character);
+	const bool bIsAiming = IsValid(PlayerCharacter) && PlayerCharacter->IsAiming();
 	OutStart = Character->GetActorLocation()
 		+ FRotator(0.0f, ViewRotation.Yaw, 0.0f).RotateVector(MuzzleOffset);
 	FVector ShotDirection = FVector::ZeroVector;
 
 	if (bUseVisualRifleMuzzle)
 	{
-		if (const AColonialMercenariesCharacter* PlayerCharacter =
-			Cast<AColonialMercenariesCharacter>(Character))
+		if (IsValid(PlayerCharacter))
 		{
 			if (const USceneComponent* Muzzle = PlayerCharacter->GetPrototypeRifleMuzzle())
 			{
 				if (Muzzle->IsRegistered())
 				{
 					OutStart = Muzzle->GetComponentLocation();
-					if (bFireAlongMuzzleForward)
+					if (bIsAiming && bFireAlongMuzzleForward)
 					{
 						ShotDirection = Muzzle->GetForwardVector().GetSafeNormal();
 					}
@@ -87,8 +91,9 @@ bool UCMPrototypeWeaponComponent::TraceShot(
 
 	if (ShotDirection.IsNearlyZero())
 	{
-		// Existing optional camera-assisted direction remains available for
-		// designers, while still starting shots from the actual muzzle.
+		// Hip fire: camera selects the target point, but the shot still
+		// starts at the muzzle and can strike intervening cover.
+		// This is NOT camera-origin hitscan, so close obstacles still matter.
 		FVector ViewOrigin = Character->GetPawnViewLocation();
 		if (const UCameraComponent* Camera = Character->FindComponentByClass<UCameraComponent>())
 		{
@@ -108,6 +113,15 @@ bool UCMPrototypeWeaponComponent::TraceShot(
 		return false;
 	}
 
+	// Randomness is server-only and belongs to the real hit trace.
+	// The local UI instead shows the center of the same firing cone.
+	if (bApplyServerSpread && !bIsAiming && HipFireSpreadDegrees > 0.0f)
+	{
+		const float ConeRadians = FMath::DegreesToRadians(
+			FMath::Clamp(HipFireSpreadDegrees, 0.0f, 30.0f));
+		ShotDirection = FMath::VRandCone(ShotDirection, ConeRadians);
+	}
+
 	const FVector ShotRangeEnd = OutStart + ShotDirection * Range;
 	const bool bBlockingHit = World->LineTraceSingleByChannel(
 		OutHit, OutStart, ShotRangeEnd, ECC_Visibility, TraceParams);
@@ -120,7 +134,7 @@ bool UCMPrototypeWeaponComponent::GetPredictedShot(
 {
 	FHitResult PredictedHit;
 	bBlockingHit = false;
-	if (!TraceShot(OutStart, OutEnd, PredictedHit))
+	if (!TraceShot(OutStart, OutEnd, PredictedHit, false))
 	{
 		return false;
 	}
@@ -158,7 +172,7 @@ void UCMPrototypeWeaponComponent::FireOnAuthority()
 	FVector MuzzleOrigin;
 	FVector TracerEnd;
 	FHitResult ShotHit;
-	if (!TraceShot(MuzzleOrigin, TracerEnd, ShotHit))
+	if (!TraceShot(MuzzleOrigin, TracerEnd, ShotHit, true))
 	{
 		return;
 	}
