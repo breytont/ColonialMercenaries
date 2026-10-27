@@ -177,6 +177,7 @@ void AColonialMercenariesCharacter::BeginPlay()
 	// Respect camera defaults configured in BP_ThirdPersonCharacter.
 	NormalCameraArmLength = CameraBoom->TargetArmLength;
 	NormalCameraSocketOffset = CameraBoom->SocketOffset;
+	NormalMaxWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	UpdateAimingPresentation();
 	if (IsValid(HealthComponent))
 	{
@@ -268,6 +269,7 @@ void AColonialMercenariesCharacter::EndPlay(
 {
 	GetWorldTimerManager().ClearTimer(BleedOutTimerHandle);
 	GetWorldTimerManager().ClearTimer(ReviveHoldTimerHandle);
+	GetWorldTimerManager().ClearTimer(HeldFireTimerHandle);
 	if (IsValid(ActiveReticleWidget))
 	{
 		ActiveReticleWidget->RemoveFromParent();
@@ -321,7 +323,11 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 		if (FireAction)
 		{
 			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started,
-				this, &AColonialMercenariesCharacter::Fire);
+				this, &AColonialMercenariesCharacter::StartFiring);
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed,
+				this, &AColonialMercenariesCharacter::StopFiring);
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled,
+				this, &AColonialMercenariesCharacter::StopFiring);
 		}
 		if (ReviveAction)
 		{
@@ -414,12 +420,85 @@ void AColonialMercenariesCharacter::DoJumpEnd()
 	StopJumping();
 }
 
-void AColonialMercenariesCharacter::Fire()
+void AColonialMercenariesCharacter::StartFiring()
 {
-	if (IsLocallyControlled() && !IsIncapacitated() && IsValid(PrototypeWeapon))
+	if (!IsLocallyControlled() || bFireHeld || IsIncapacitated()
+		|| !IsValid(PrototypeWeapon) || !GetWorld())
+	{
+		return;
+	}
+
+	bFireHeld = true;
+	if (!bIsAiming)
+	{
+		// Free-look ends only while LMB is actually held. Do not snap the
+		// pawn to camera yaw; use CharacterMovement's normal rotation rate.
+		SetHipFireTurning(true);
+	}
+	TryFireHeld();
+	GetWorldTimerManager().SetTimer(HeldFireTimerHandle, this,
+		&AColonialMercenariesCharacter::TryFireHeld, 0.05f, true);
+}
+
+void AColonialMercenariesCharacter::StopFiring()
+{
+	bFireHeld = false;
+	GetWorldTimerManager().ClearTimer(HeldFireTimerHandle);
+	SetHipFireTurning(false);
+}
+
+void AColonialMercenariesCharacter::TryFireHeld()
+{
+	if (!bFireHeld || !IsLocallyControlled() || IsIncapacitated())
+	{
+		StopFiring();
+		return;
+	}
+
+	if (!bIsAiming)
+	{
+		if (!IsValid(GetController()))
+		{
+			return;
+		}
+
+		// The bullet is ALWAYS fired along the physical barrel. Wait until
+		// our physical body is pointing near the camera azimuth rather than
+		// sending a physically incorrect off-axis shot on first LMB.
+		const float YawDifference = FMath::Abs(FMath::FindDeltaAngleDegrees(
+			GetActorRotation().Yaw, GetController()->GetControlRotation().Yaw));
+		if (YawDifference > FMath::Clamp(
+			HipFireAlignmentToleranceDegrees, 1.0f, 45.0f))
+		{
+			return;
+		}
+	}
+	if (IsValid(PrototypeWeapon))
 	{
 		PrototypeWeapon->RequestFire();
 	}
+}
+
+void AColonialMercenariesCharacter::SetHipFireTurning(bool bNewTurning)
+{
+	bNewTurning = bNewTurning && !bIsAiming && !IsIncapacitated();
+	if (bHipFireTurning == bNewTurning)
+	{
+		return;
+	}
+	bHipFireTurning = bNewTurning;
+	UpdateAimingPresentation();
+	if (!HasAuthority())
+	{
+		ServerSetHipFireTurning(bNewTurning);
+	}
+}
+
+void AColonialMercenariesCharacter::ServerSetHipFireTurning_Implementation(
+	bool bNewTurning)
+{
+	bHipFireTurning = bNewTurning && !bIsAiming && !IsIncapacitated();
+	UpdateAimingPresentation();
 }
 
 void AColonialMercenariesCharacter::InteractWithNearbyContract()
@@ -774,6 +853,14 @@ void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
 
 	// Predict aiming presentation instantly for the local player.
 	bIsAiming = bNewAiming;
+	if (bIsAiming)
+	{
+		SetHipFireTurning(false);
+	}
+	else if (bFireHeld)
+	{
+		SetHipFireTurning(true);
+	}
 	UpdateAimingPresentation();
 
 	if (!HasAuthority())
@@ -801,8 +888,16 @@ void AColonialMercenariesCharacter::UpdateAimingPresentation()
 		return;
 	}
 
+	// RMB = locked forward shoulder aim. LMB without RMB = smooth
+	// camera-facing rotation WHILE firing only. Otherwise free orbit is
+	// unchanged and the player may look around without turning their body.
 	bUseControllerRotationYaw = bIsAiming;
-	GetCharacterMovement()->bOrientRotationToMovement = !bIsAiming;
+	GetCharacterMovement()->bOrientRotationToMovement =
+		!bIsAiming && !bHipFireTurning;
+	GetCharacterMovement()->bUseControllerDesiredRotation =
+		!bIsAiming && bHipFireTurning;
+	GetCharacterMovement()->MaxWalkSpeed =
+		bIsAiming ? FMath::Max(AimedWalkSpeed, 100.0f) : NormalMaxWalkSpeed;
 
 	// Camera presentation is local. Remote proxies only need the replicated
 	// aim state for body rotation; they do not need their cameras updated.
