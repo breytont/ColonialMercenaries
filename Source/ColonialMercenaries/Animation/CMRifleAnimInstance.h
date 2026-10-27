@@ -27,6 +27,13 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	float CMRifleAimAlpha = 0.0f;
 
+	/** 0 = distinct rifle-at-hip ready animation, 1 = precise shoulder
+	 * aim. This is separate from rifle equipped/unequipped blending and
+	 * is meant to drive Blend Poses by Bool or a scalar Blend in ABP.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
+	float CMShoulderAimAlpha = 0.0f;
+
 	/** RMB shoulder-aim state; independent of rifle-ready pose visibility. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category="Colonial Mercenaries|Rifle Animation")
 	bool CMIsAiming = false;
