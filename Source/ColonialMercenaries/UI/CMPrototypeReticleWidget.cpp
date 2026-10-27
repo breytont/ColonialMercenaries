@@ -34,7 +34,7 @@ TSharedRef<SWidget> UCMPrototypeReticleWidget::RebuildWidget()
 		{
 			ReticleText = WidgetTree->ConstructWidget<UTextBlock>(
 				UTextBlock::StaticClass(), TEXT("PhysicalMuzzleCrosshair"));
-			ReticleText->SetText(FText::FromString(TEXT("+")));
+			ReticleText->SetText(FText::FromString(TEXT("○")));
 			ReticleSlot = Canvas->AddChildToCanvas(ReticleText);
 		}
 	}
@@ -51,6 +51,7 @@ void UCMPrototypeReticleWidget::NativeConstruct()
 		ReticleText->SetJustification(ETextJustify::Center);
 		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle("Bold", ReticleFontSize);
 		ReticleText->SetFont(Font);
+		ReticleText->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
 		ReticleText->SetShadowOffset(FVector2D(1.0f, 1.0f));
 		ReticleText->SetShadowColorAndOpacity(
 			FLinearColor(0.0f, 0.0f, 0.0f, 0.95f));
@@ -88,6 +89,21 @@ void UCMPrototypeReticleWidget::NativeTick(
 		ReticleText->SetVisibility(ESlateVisibility::Hidden);
 		return;
 	}
+
+	// Both modes use a circular marker projected from the TRUE muzzle
+	// trace. This ring is a visual stability cue; it never steers a shot.
+	// Aimed walking is slower and displays a tighter circle. Every
+	// server-confirmed shot widens it temporarily before it recovers.
+	const bool bAiming = Character->IsAiming();
+	const float BaseCircleScale = bAiming ? AimedCircleScale : HipCircleScale;
+	const float Bloom = WeaponComponent->GetLocalReticleBloom();
+	const float Speed = Character->GetVelocity().Size2D();
+	const float MovementExpansion = FMath::Clamp(
+		Speed / 500.0f, 0.0f, 1.0f) * (bAiming ? 0.10f : 0.25f);
+	const float CircleScale = FMath::Clamp(
+		BaseCircleScale + Bloom * MaxAdditionalBloomScale
+		+ MovementExpansion, 0.3f, 3.0f);
+	ReticleText->SetRenderScale(FVector2D(CircleScale, CircleScale));
 
 	FVector ShotStart;
 	FVector ShotEnd;

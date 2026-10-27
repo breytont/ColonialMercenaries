@@ -31,9 +31,11 @@ protected:
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
-	/** Hide the projected firing marker when the rifle is lowered. */
+	/** Optional override to hide the marker when the rifle is lowered.
+	 * False by default: hip fire now has its own circular aiming indicator.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Reticle")
-	bool bAimOnly = true;
+	bool bAimOnly = false;
 
 	/** Reticle font size in Slate points. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Reticle",
@@ -49,4 +51,16 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> ReticleText;
+
+	/** Visual scale modifiers; the center always projects the true
+	 * muzzle hit point, not a camera-origin simulated shot.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float AimedCircleScale = 0.72f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float HipCircleScale = 1.00f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Reticle")
+	float MaxAdditionalBloomScale = 0.85f;
 };
