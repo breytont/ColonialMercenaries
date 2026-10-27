@@ -307,3 +307,41 @@ on server. The present panel is not the final contract management UX.
 
 **Status:** source committed; pending UE5.8 Development Editor build and
 single-/two-player PIE feedback.
+
+## UI review and cargo presentation — October 27, 2026
+
+The user provided screenshots of the native mission tracker in four
+states: no active contract, active recovery with distance, intel held by
+the local player with distance to HQ, and contract complete with 1500 CR.
+They confirmed it looks good for the prototype and correctly updates.
+**Design debt:** the prototype always advertises the available Relay
+Intelligence Recovery mission before it has been accepted. Once there
+are multiple contracts, list available jobs only in the HQ contract
+board; reserve the persistent HUD tracker for accepted jobs or the
+currently selected mission. Defer the larger HUD redesign for now as
+requested.
+
+**Physical-cargo visibility fix (source committed; not yet rebuilt):**
+the same replicated `ACMPrototypeIntelCache` actor remains attached
+to its individual carrier so contract authority, death/drop, recovery,
+and delivery logic are unchanged. `RefreshPresentation()` renders its
+placeholder mesh **only when the package is on the ground**, while
+disabling its collision and hiding the label when carried. This avoids
+the oversized cube obstructing the player camera, while ensuring a
+dropped package remains findable. Both server transitions and
+`OnRep_Carrier` refresh the visibility state.
+
+**Inventory direction:** Keep a distinction between shared company
+contracts and individual possession. A later inventory system should
+represent mission cargo as an item with a physical world drop,
+handoff/transfer rules and server validation; use consistent item
+definitions alongside carried weapons, armor, ammunition and equipment.
+Do not implement a sprawling general-purpose inventory before the
+mission loop needs it.
+
+**Next regression:** Pull and rebuild. In 2-player PIE, pick up intel:
+verify the cube disappears for **both players** while the HUD identifies
+the real carrier. Drop through incapacitation: the cube and
+interact prompt return on the ground, a teammate can retrieve it,
+and the original payment still requires actual delivery. Check that
+no new mission UI obstructs the crosshair or combat HUD.
