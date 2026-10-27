@@ -41,10 +41,7 @@ public:
     }
 
     UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Contracts")
-    bool IsCarriedBy(const AColonialMercenariesCharacter* Player) const
-    {
-        return !bDelivered && IsValid(Player) && Carrier == Player;
-    }
+    bool IsCarriedBy(const AColonialMercenariesCharacter* Player) const;
 
     /** Only a linked HQ terminal can complete delivery on the server. */
     bool FinalizeDelivery(AColonialMercenariesCharacter* Player);
