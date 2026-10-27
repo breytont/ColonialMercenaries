@@ -83,6 +83,12 @@ void ACMPrototypeIntelCache::UnbindCarrierDelegates()
     CarrierController.Reset();
 }
 
+bool ACMPrototypeIntelCache::IsCarriedBy(
+    const AColonialMercenariesCharacter* Player) const
+{
+    return !bDelivered && IsValid(Player) && Carrier.Get() == Player;
+}
+
 void ACMPrototypeIntelCache::TryInteract(AColonialMercenariesCharacter* Player)
 {
     if (!HasAuthority() || bDelivered || IsValid(Carrier)
