@@ -176,6 +176,24 @@ protected:
 		meta=(ClampMin="0.0"))
 	float AssemblySeconds = 5.0f;
 
+	/** 0 requires the full target garrison to rally before an assault.
+	 * Positive values permit deliberately understrength assaults. Every
+	 * living soldier must still be present at its own rally slot.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Assembly",
+		meta=(ClampMin="0", ClampMax="12", UIMin="0", UIMax="12"))
+	int32 MinimumAssaultStrength = 0;
+
+	/** Horizontal distance from each assigned rally slot that counts as assembled. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Assembly",
+		meta=(ClampMin="100.0", UIMin="100.0", UIMax="600.0"))
+	float RallySlotRadius = 250.0f;
+
+	/** Every soldier must stay near their own slot for this long before departure. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad|Assembly",
+		meta=(ClampMin="0.0", UIMin="0.0", UIMax="10.0"))
+	float RallyReadyHoldSeconds = 1.0f;
+
 	/** Retreat if the number of surviving members reaches this threshold. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Colonial Mercenaries|Faction Outpost|Squad",
 		meta=(ClampMin="0", ClampMax="11"))
@@ -221,6 +239,11 @@ protected:
 		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
 	ECMOutpostSquadPhase SquadPhase = ECMOutpostSquadPhase::Assembly;
 
+	/** Number of living soldiers currently within their assigned rally slots. */
+	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
+		Category="Colonial Mercenaries|Faction Outpost|Squad|State")
+	int32 RalliedGarrison = 0;
+
 	/** Replicated summary, safe to use in later contracts and faction UI. */
 	UPROPERTY(ReplicatedUsing=OnRep_OutpostStatus, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Faction Outpost|State")
@@ -238,6 +261,7 @@ private:
 	FTimerHandle GarrisonCheckTimerHandle;
 	float NextReinforcementTime = 0.0f;
 	float PhaseStartedAt = 0.0f;
+	float AssemblyReadySince = -1.0f;
 	ECMOutpostPosture CurrentPosture = ECMOutpostPosture::Assault;
 	TWeakObjectPtr<ACharacter> SharedSquadContact;
 	bool bSharedContactWasProvoked = false;
@@ -253,6 +277,7 @@ private:
 	void SetSquadPhase(ECMOutpostSquadPhase NewPhase);
 	void UpdateSquadOrders();
 	FVector GetSquadSlot(int32 Index, ECMOutpostSquadPhase Phase) const;
+	int32 CountRalliedInfantry() const;
 
 	UFUNCTION()
 	void OnRep_OutpostStatus();

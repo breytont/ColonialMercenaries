@@ -15,6 +15,7 @@ class UCMHealthComponent;
 class UCMFactionComponent;
 class UCMPrototypeVitalsWidget;
 class UCMPrototypeReticleWidget;
+class UCMPrototypeMissionTrackerWidget;
 class USceneComponent;
 class UStaticMeshComponent;
 class UWidgetComponent;
@@ -114,6 +115,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
 	TObjectPtr<UInputAction> ReviveAction;
 
+	/** First contract interaction (IA_Interact, recommended F in IMC_Default). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Interaction")
+	TObjectPtr<UInputAction> InteractAction;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
 		meta=(ClampMin="100.0"))
 	float AimedCameraArmLength = 275.0f;
@@ -156,6 +161,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UCMPrototypeReticleWidget> ActiveReticleWidget;
+
+	/** Native prototype objective tracker, local-only and read-only. */
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Contracts|HUD")
+	TSubclassOf<UCMPrototypeMissionTrackerWidget> MissionTrackerWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMPrototypeMissionTrackerWidget> ActiveMissionTrackerWidget;
 
 public:
 
@@ -207,6 +219,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	void EnsureLocalReticleWidget();
 	void EnsureLocalVitalsWidget();
+	void EnsureLocalMissionTrackerWidget();
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -220,6 +233,13 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	void Fire();
+
+	/** Pick the nearest nearby prototype contract object without a global scan. */
+	void InteractWithNearbyContract();
+
+	/** The client cannot own contract actors; route input via owned Character. */
+	UFUNCTION(Server, Reliable)
+	void ServerTryContractInteract(AActor* TargetActor);
 	void StartReviveHold();
 	void CancelReviveHold();
 	void StartReviveHoldOnAuthority();
