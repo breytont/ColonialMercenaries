@@ -246,3 +246,64 @@ carrying the package, while preserving the shared company contract.
   and regression of the existing combat and territory systems.
 
 Avoid treating these untested edge cases as already validated.
+
+## First mission HUD — compact read-only tracker (October 27, 2026)
+
+Added a **native local-only `UCMPrototypeMissionTrackerWidget`** under
+`Source/ColonialMercenaries/UI` and wired creation/cleanup to the
+existing player character's local HUD lifecycle. The widget is initialized
+by default (no new Blueprint UI required) and appears in the top-right
+of the owning player's screen. It deliberately has **no input, gameplay
+mutation, networking RPC or Actor Tick**.
+
+The HUD reads the terminal's existing **replicated**
+`ECMPrototypeContractStage` and company credits, plus the actual
+replicated intel carrier. It refreshes every **0.35 seconds** locally
+to reflect player distance and late replication. It searches for the
+single prototype contract terminal only until found; thereafter all
+refreshes use the cached actor pointer.
+
+| Contract state | Tracker |
+| --- | --- |
+| Available | No active contract, visit HQ |
+| Active | Recover intel at relay, distance to intel |
+| IntelRecovered + local player carrier | Deliver intel to HQ, distance |
+| IntelRecovered + teammate carrier | Escort the intel carrier |
+| IntelRecovered + no carrier | Recover dropped intel, distance |
+| Paid | Contract complete / payment received |
+| Any | Read-only, shared company credit balance |
+
+The widget auto-hides on maps without a prototype terminal
+(`Lvl_FactionTest`). The existing `CMPrototypeVitalsWidget` remains
+unchanged in the upper-left, reticle unaffected.
+
+### User integration and test
+
+1. Finish any local editor work, **Save All**, close Unreal and commit
+   map/asset changes before pulling. Stay on
+   `feature/contested-frontier-blockout`.
+2. Fetch/Pull origin and build **Development Editor / Win64**.
+3. Reopen `Lvl_ContestedFrontier` and launch one-player PIE.
+   The top-right panel should read **No active contract** and show
+   starting company funds. Accept the contract at HQ.
+4. Confirm it changes to **Recover relay intelligence** with a live
+   distance as you run down the HQ-to-relay road.
+5. Recover the physical cache: should change to **Deliver intel to
+   Mercenary HQ**. Drop on incapacitation and confirm
+   **Recover dropped intel**. Complete payment and confirm
+   **Contract complete** with **1500 CR**.
+6. In 2-player listen server PIE, confirm **both clients** read the same
+   contract stage and balance, but the actual carrier sees **Deliver**
+   while a non-carrier sees **Escort**. Invalidate/drop the package
+   and confirm both windows switch to a recovery objective.
+7. Open `Lvl_FactionTest` and verify that the panel is hidden there.
+   Existing weapon, aiming, revive and combat HUD must be unaffected.
+
+**Future expansion:** Design a real contract board UI, persistent
+company finance GameState/SaveGame, objective markers and directional
+waypoints, multiple simultaneous accepted jobs, and per-player mission
+notifications. Keep HUD widgets read-only; game state remains authoritative
+on server. The present panel is not the final contract management UX.
+
+**Status:** source committed; pending UE5.8 Development Editor build and
+single-/two-player PIE feedback.
