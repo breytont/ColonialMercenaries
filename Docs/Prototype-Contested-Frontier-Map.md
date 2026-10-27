@@ -467,3 +467,38 @@ This editor-time C++ graybox:
 **Future art pass:** replace the gray blocks with a proper
 Landscape-Spline dirt/gravel road, material layers and local terrain
 smoothing once our world layout and encounters are validated.
+
+## Field test #2 — HQ service road (October 26)
+
+Screenshots confirmed the visual HQ-to-relay service-road actor aligns with
+the planned north/south gates and provides a readable straight route.
+A third screenshot also shows a **rendering/geometry defect**: portions
+of the road hover above the uneven landscape and can intersect the
+third-person character, especially at the side/low camera angle.
+
+**Why:** this road is intentionally made from thin, `NoCollision` cube
+instances. The generator samples terrain along the **road centerline** and
+interpolates each panel's center and slope, but it does not deform each
+panel to the changing **ground height across the six-metre width**.
+As a result, road edges may float or clip, and players physically walk
+on the landscape underneath the decorative slabs.
+
+**Decision (development review):** treat this as known **temporary
+graybox visual debt**, *not* an AI navigation failure. Do not spend a
+whole milestone polishing disposable slab meshes. Later replace with
+terrain-conforming Landscape Spline surfaces/material painting and
+local smoothing, then re-test ground-to-road contact, character
+intersection, road-edge gaps, and vehicle path slopes. If a segment
+actually prevents play or obscures combat, prioritize a small interim
+fix sooner.
+
+**GDD alignment:** Prototype 0.1 requires a physical company HQ and
+a minimal accepted-contract / objective / payment / procurement loop.
+Once the player can travel between HQ and relay, favor implementation
+of that loop over more decorative roads. For the first contract,
+prefer an **active interaction at the relay** (e.g., recover a data
+package) instead of paying simply when autonomous faction soldiers
+capture the site. The independent war may alter encounter difficulty
+without completing a player's paid job on their behalf. Contract
+acceptance, completion and credits must be validated by the server,
+keeping the headquarters operations facade separate from gameplay.
