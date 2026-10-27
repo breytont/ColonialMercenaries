@@ -421,3 +421,49 @@ connected to the contested point's ownership-change event. The
 contract should distinguish employer, objective, completion and
 payment state and validate all rewards on server. Do not modify
 territory capture code to make it a contract system.
+
+## Stage E1 — HQ spawn tested; visual HQ–relay access road
+
+The user confirmed the new **Mercenary Headquarters** blockout built and
+spawned their third-person player inside the courtyard. For a first
+readable connection to the central relay, added one reusable
+`ACMFrontierServiceRoad` (`World/CMFrontierServiceRoad.h/.cpp`).
+
+This editor-time C++ graybox:
+- Places a ~**66m** long, **6m** wide, thin road along its local **+Y**
+  with an optional gentle ~1.8m sideways deviation.
+- Uses 33 short engine-cube instances and world collision traces to
+  approximately follow the existing Landscape surface; height sampling
+  happens **in OnConstruction** only, not on Tick.
+- Uses **NoCollision** and has no navigation effect; player and
+  soldiers walk on the real Landscape, not on these visual road tiles.
+  It is not a road material, spline-deformed landscape, physical
+  paved road, or functioning pathfinding corridor.
+- Geometry is separate from gameplay contract and AI systems.
+- Editable LengthCm, WidthCm, MidpointLateralOffsetCm,
+  SegmentCount and RoadClearanceCm let us iterate without placing
+  individual cubes.
+
+**Integration — after checkpointing the successful spawn**
+1. `Save All` and commit the HQ actor and PlayerStart external actor
+   changes locally. **Close Unreal** before pulling new code.
+2. Pull `feature/contested-frontier-blockout`, build
+   `Development Editor | Win64`, reopen `Lvl_ContestedFrontier`.
+3. Place **CM Frontier Service Road** with transform
+   **Location (0,-8400,0), Rotation (0,0,0), Scale (1,1,1)**.
+   Local +Y leads from HQ's **north gate at Y≈-8400** to relay's
+   **south gate at Y≈-1800**; keep defaults for first test.
+4. Observe from ground level, verify a single continuous visual
+   route, with no floating tiles, ground clipping or blocked doors.
+   If road traces hit props near the endpoints, shorten by a metre
+   or adjust individual entry settings and report it before creating
+   more roads.
+5. Verify PlayerStart can physically **walk from HQ to the relay**.
+   Add no AI road-following until we confirm the environmental
+   navigation test.
+6. Save All, commit new map/external-actor assets on the feature
+   branch and push.
+
+**Future art pass:** replace the gray blocks with a proper
+Landscape-Spline dirt/gravel road, material layers and local terrain
+smoothing once our world layout and encounters are validated.
