@@ -114,6 +114,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Combat")
 	TObjectPtr<UInputAction> ReviveAction;
 
+	/** First contract interaction (IA_Interact, recommended F in IMC_Default). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Interaction")
+	TObjectPtr<UInputAction> InteractAction;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
 		meta=(ClampMin="100.0"))
 	float AimedCameraArmLength = 275.0f;
@@ -220,6 +224,13 @@ protected:
 	void Look(const FInputActionValue& Value);
 
 	void Fire();
+
+	/** Pick the nearest nearby prototype contract object without a global scan. */
+	void InteractWithNearbyContract();
+
+	/** The client cannot own contract actors; route input via owned Character. */
+	UFUNCTION(Server, Reliable)
+	void ServerTryContractInteract(AActor* TargetActor);
 	void StartReviveHold();
 	void CancelReviveHold();
 	void StartReviveHoldOnAuthority();
