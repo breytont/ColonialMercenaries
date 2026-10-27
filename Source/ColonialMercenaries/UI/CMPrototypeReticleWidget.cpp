@@ -89,6 +89,18 @@ void UCMPrototypeReticleWidget::NativeTick(
 		return;
 	}
 
+	// A thin circle indicates the center of the hip-fire cone; the
+	// existing plus marker continues to identify physical ADS impact.
+	// Actual random dispersion remains exclusively on the server.
+	const bool bAiming = Character->IsAiming();
+	if (!bHasRenderedAimState || bLastRenderedAimState != bAiming)
+	{
+		ReticleText->SetText(FText::FromString(
+			bAiming ? TEXT("+") : TEXT("○")));
+		bLastRenderedAimState = bAiming;
+		bHasRenderedAimState = true;
+	}
+
 	FVector ShotStart;
 	FVector ShotEnd;
 	bool bBlockingHit = false;
