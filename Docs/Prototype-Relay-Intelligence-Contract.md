@@ -345,3 +345,10 @@ the real carrier. Drop through incapacitation: the cube and
 interact prompt return on the ground, a teammate can retrieve it,
 and the original payment still requires actual delivery. Check that
 no new mission UI obstructs the crosshair or combat HUD.
+
+**Playtest confirmation — carried-item visibility (October 27, 2026):**
+User confirmed the latest carried-intel invisibility change **works in PIE**.
+The mission tracker screenshots also confirmed the unaccepted, accepted,
+carrying, and paid states render correctly. These are confirmed
+prototype behaviors; inventory/PDA/contract-board redesign remains
+deliberately deferred pending design review.
