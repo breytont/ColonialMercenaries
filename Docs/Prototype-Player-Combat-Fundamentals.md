@@ -1,75 +1,80 @@
-# Player Combat Fundamentals — Increment A1: Reliable Hip Fire
+# Player Combat Fundamentals — Increment A1: Physical Muzzle Hip Fire and Rifle-Ready Stance
 
 **Branch:** `feature/player-hip-fire`
 **Base:** `feature/contested-frontier-blockout` (PR #16)
-**Status:** Source committed, pending Unreal Engine 5.8 Development Editor build and PIE testing.
+**Status:** Corrected source committed; pending Unreal Engine 5.8 Development Editor build and PIE verification.
 
-## Goal
+## Feedback that supersedes the initial A1 approach
 
-Make a normal left-mouse click reliably shoot toward the camera's
-indicated target **without requiring RMB aim**, while maintaining the
-physical muzzle origin and existing aimed-rifle behavior. This is the
-first small gameplay-feel step from the post-Prototype-0.1 development
-review. Sprint, crouch, reload, ammunition, detailed recoil/bloom and
-proper weapon data assets are deliberate subsequent increments.
+The user supplied an 11-second Unreal Engine playtest video. In the video,
+releasing RMB lowers the character's right hand and physically mounted rifle,
+so muzzle-forward shots hit the ground. The first proposed solution redirected
+non-ADS bullets toward a camera target, but the user **explicitly rejected**
+that approach: the gunshot must follow the **real barrel/muzzle direction**.
 
-## Implementation
+Correct design invariant:
+- **The shot leaves the actual muzzle along the barrel's forward direction**
+  in both hip and RMB aim modes, including when jumping or looking vertically.
+- The player's **weapon animation/stance** must make the gun point where the
+  player intends to fire. Do not move the muzzle, invent a camera-origin ray,
+  or change ballistics to camouflage an incorrect pose.
+- Different stance/recoil/sway/spread systems can be introduced later, but
+  they must be visually represented through the weapon's orientation,
+  recoil or stability model, not produce inexplicable bent trajectories.
+- Cover between muzzle and target must still intercept the projectile.
 
-- `UCMPrototypeWeaponComponent::TraceShot` branches on the **existing**
-  `AColonialMercenariesCharacter::IsAiming()` state, which is set
-  through the established server-authoritative aim RPC.
-- **Hip fire:** Trace the controller's view from the third-person camera
-  to find an aim point, then calculate a ray **from the physical world
-  muzzle toward that point**. A single Visibility ray from the muzzle
-  resolves actual hits, so nearby barricades still intercept fire even
-  if the camera sees beyond them.
-- A server-validated shot has random angular dispersion inside a
-  designer-tunable cone `HipFireSpreadDegrees` (initially **2.5°**
-  half-angle). Random shot direction and collision happen only on the
-  server; the same approved hit endpoint replicates through the
-  existing muzzle/tracer multicast.
-- **Aimed fire:** Preserve existing `bFireAlongMuzzleForward` and
-  weapon animation system; no regression to barrel-aligned ADS aiming.
-  Designers can disable this property to use camera convergence in both
-  modes if necessary.
-- The existing local predictive `GetPredictedShot` samples the
-  **center** of the hip cone without randomness; it never damages
-  actors and is not a guaranteed hit indicator.
-- The native `UCMPrototypeReticleWidget` now shows a plain
-  **hollow-circle** marker when hip firing, and retains the prior
-  **plus sign** for aimed shots. The marker projects the predicted
-  muzzle-to-target hit point and becomes amber if it is blocked.
-  This is **not** the final dynamic recoil/spread reticle.
-- No new Input Action, Blueprint, level actor, replicated gameplay
-  property or special HUD asset required for this increment.
+## What changed in the corrected increment
 
-## Test plan (user in Unreal Editor)
+1. Restored the existing physically barrel-aligned `TraceShot` and
+   `bFireAlongMuzzleForward = true` behavior for **both** RMB and normal
+   firing. No camera-convergence branch for hip fire and no random server
+   hip-fire cone. The camera-convergence mode remains a diagnostic editor
+   toggle only and should be disabled for this game's intended handling.
+2. `UCMRifleAnimInstance` now keeps `CMRifleAimAlpha` targeting **1.0**
+   for the armed playable character regardless of RMB state. This drives
+   the existing `ABP_CM_Rifle` upper-body pose instead of blending back
+   to unarmed arms/rifle-down pose. `CMIsAiming` still reflects RMB and
+   governs the original character ADS camera/body behavior.
+3. Kept the initial local circular hip reticle (plus while RMB aiming).
+   It projects the **actual muzzle-forward predicted collision**. It is
+   NOT a camera-aim guarantee and it does not yet expand with recoil.
+4. No new Input Actions, AnimGraph assets or map actors for this first
+   correction. A unique non-ADS hip-ready pose and more natural turn/aim
+   locomotion remain future animation work.
 
-1. Save/commit any uncommitted assets on
-   `feature/contested-frontier-blockout` and close the editor.
-2. Fetch origin, switch to `feature/player-hip-fire` in GitHub
-   Desktop, pull, then build **Development Editor | Win64**.
-3. In `Lvl_ContestedFrontier`, start single-player PIE. Without
-   holding RMB, the **circular reticle** should be visible.
-4. Aim the camera at a wall/ground/target and left click. Shots should
-   leave the rifle muzzle and generally travel **toward the viewed
-   target**, with plausible hip dispersion rather than drilling the
-   ground wherever the lowered rifle happens to point.
-5. Stand close behind solid cover with the third-person camera
-   looking past it. Shots must still impact the cover when the muzzle
-   is blocked (no camera-origin shooting through walls).
-6. Hold RMB: crosshair changes to **+** and previous aimed-rifle
-   behavior persists. Test aiming up/down, jumping and moving.
-7. Test on a 2-player listen server, including shots fired by the
-   **client** (second PIE window): hits/damage/tracers should agree
-   with server decisions. Verify mission/interactions still work.
-8. Optionally tune `Hip Fire Spread Degrees` on the player weapon
-   component in `BP_ThirdPersonCharacter` after collecting feedback.
+## Critical limitations / next fixes
 
-**Remaining work in Milestone A:** Decide hip-vs-ADS spread,
-movement inaccuracy, dynamic reticle expansion/recoil recovery,
-sprint/crouch with replicated speed/posture, magazine/reload and
-ammo inventory. Keep common weapon stats/data separate from
-animation and user interface once the first gun feels correct.
+- Existing `MF_Rifle_Idle_ADS` upper-body pose is used as a stand-in for
+  an armed **ready** pose. Hip and ADS shoulder animation may look too
+  similar until we author/add a distinct lower ready animation.
+- Outside RMB the character still uses orientation-to-movement; turning
+  the camera while standing still does not automatically rotate the
+  entire character to camera yaw. The muzzle may therefore point to the
+  side of the camera's central field of view. This is a pose/turning
+  problem, NOT a reason to alter bullet direction. We will validate
+  and address controlled body/upper-body rotation in the next iteration.
+- Look up/down must continue to agree with the animation aim offset.
+  If the rifle itself does not pitch with view, update `AO_Rifle`/
+  `ABP_CM_Rifle` rather than steering the trace away from the muzzle.
 
-**No engine build or runtime test was performed by the assistant.**
+## Build and validation
+
+1. Commit any outstanding editor map/.uasset changes, save, close Unreal.
+2. Fetch origin, check out `feature/player-hip-fire`, then Pull.
+3. Build **Development Editor | Win64** and open the existing map.
+4. Without RMB: mannequin's rifle should stay raised in its existing
+   rifle aiming layer, **not drop beside the legs**. Fire and inspect
+   the tracer: it must leave the muzzle straight, not bend/veer
+   toward the camera crosshair.
+5. Rotate the **camera without moving** and then move/turn the
+   character; note any separation between muzzle direction and
+   center-screen. Report visual examples: these guide our body turn
+   and gun handling work rather than changes to server ballistics.
+6. RMB: camera shoulders in; gun still points along its actual barrel.
+   Release RMB: **camera** returns but the **gun stays ready**.
+7. Inspect shots aimed high/low and from beside a blocking wall. A real
+   muzzle ray must be obstructed by the wall and remain straight.
+8. Repeat basic test with two-player listen server to catch remote
+   skeletal animation or authoritative muzzle misalignment.
+
+**No UE build or runtime test has yet been performed by the assistant.**
