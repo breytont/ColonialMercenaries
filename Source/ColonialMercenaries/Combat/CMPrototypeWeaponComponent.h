@@ -44,6 +44,12 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category="Colonial Mercenaries|Weapon|Aiming")
 	bool GetPredictedShot(FVector& OutStart, FVector& OutEnd, bool& bBlockingHit) const;
 
+	/** Cosmetic recoil/shot cadence indicator (0..1) for the local
+	 * reticle. Shots still follow the *real muzzle*, never a random cone.
+	 */
+	UFUNCTION(BlueprintPure, Category="Colonial Mercenaries|Weapon|Recoil")
+	float GetLocalReticleBloom() const;
+
 	/** Cosmetic event dispatched once per approved shot on relevant clients.
 	 * Blueprints can attach Niagara muzzle flashes, decals, and hit indicators.
 	 */
@@ -130,6 +136,18 @@ protected:
 		meta=(ClampMin="0.0", UIMin="0.0"))
 	float RecoilYawDegrees = 0.12f;
 
+	/** Each server-approved shot adds temporary reticle expansion. This
+	 * corresponds to existing camera kick and a less stable firing view,
+	 * not to secret off-axis bullet deviation.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Recoil",
+		meta=(ClampMin="0.0", ClampMax="1.0"))
+	float ReticleBloomPerShot = 0.28f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Recoil",
+		meta=(ClampMin="0.05", UIMin="0.1"))
+	float ReticleBloomRecoveryPerSecond = 0.60f;
+
 	/** Optional temporary diagnostic flash at the gun barrel tip. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Weapon|Debug")
 	bool bDrawMuzzleFlash = true;
@@ -152,6 +170,8 @@ protected:
 
 private:
 	float NextAllowedShotTime = 0.0f;
+	float LocalReticleBloomAtLastShot = 0.0f;
+	float LocalReticleBloomTimeSeconds = -1000.0f;
 
 	void FireOnAuthority();
 
