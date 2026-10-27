@@ -126,6 +126,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming")
 	FVector AimedCameraSocketOffset = FVector(0.0f, 55.0f, 65.0f);
 
+	/** Aim-walking is slower and keeps the rifle held more deliberately.
+	 * Uses existing movement replication; no new sprint input needed.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
+		meta=(ClampMin="100.0", UIMin="150.0", UIMax="400.0"))
+	float AimedWalkSpeed = 250.0f;
+
+	/** During hip fire the body turns smoothly toward the camera before
+	 * a shot can be taken. Outside firing, the camera remains free orbit.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
+		meta=(ClampMin="1.0", ClampMax="45.0"))
+	float HipFireAlignmentToleranceDegrees = 12.0f;
+
 	/** Seconds for a smooth camera transition; zero gives an instant switch. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Colonial Mercenaries|Aiming",
 		meta=(ClampMin="0.0", UIMin="0.0"))
@@ -232,7 +246,10 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 
-	void Fire();
+	void StartFiring();
+	void StopFiring();
+	void TryFireHeld();
+	void SetHipFireTurning(bool bNewTurning);
 
 	/** Pick the nearest nearby prototype contract object without a global scan. */
 	void InteractWithNearbyContract();
@@ -272,12 +289,22 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bNewAiming);
 
+	/** Keeps server movement facing synchronized with locally held hip fire. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetHipFireTurning(bool bNewTurning);
+
 	UFUNCTION()
 	void OnRep_Aiming();
 
 	UPROPERTY(ReplicatedUsing=OnRep_Aiming, BlueprintReadOnly,
 		Category="Colonial Mercenaries|Combat", meta=(AllowPrivateAccess="true"))
 	bool bIsAiming = false;
+
+	/** Transient intent; actor rotation itself already replicates. */
+	bool bHipFireTurning = false;
+	bool bFireHeld = false;
+	float NormalMaxWalkSpeed = 500.0f;
+	FTimerHandle HeldFireTimerHandle;
 
 	float NormalCameraArmLength = 400.0f;
 	FVector NormalCameraSocketOffset = FVector::ZeroVector;
