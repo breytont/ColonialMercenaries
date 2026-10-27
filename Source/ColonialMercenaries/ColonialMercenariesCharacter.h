@@ -15,6 +15,7 @@ class UCMHealthComponent;
 class UCMFactionComponent;
 class UCMPrototypeVitalsWidget;
 class UCMPrototypeReticleWidget;
+class UCMPrototypeMissionTrackerWidget;
 class USceneComponent;
 class UStaticMeshComponent;
 class UWidgetComponent;
@@ -161,6 +162,13 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UCMPrototypeReticleWidget> ActiveReticleWidget;
 
+	/** Native prototype objective tracker, local-only and read-only. */
+	UPROPERTY(EditDefaultsOnly, Category="Colonial Mercenaries|Contracts|HUD")
+	TSubclassOf<UCMPrototypeMissionTrackerWidget> MissionTrackerWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCMPrototypeMissionTrackerWidget> ActiveMissionTrackerWidget;
+
 public:
 
 	/** Constructor */
@@ -211,6 +219,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	void EnsureLocalReticleWidget();
 	void EnsureLocalVitalsWidget();
+	void EnsureLocalMissionTrackerWidget();
 
 	/** Initialize input action bindings */
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
