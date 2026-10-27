@@ -16,6 +16,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Engine/World.h"
 #include "UI/CMPrototypeReticleWidget.h"
+#include "UI/CMPrototypeMissionTrackerWidget.h"
 #include "Blueprint/UserWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
@@ -53,6 +54,7 @@ AColonialMercenariesCharacter::AColonialMercenariesCharacter()
 	VitalsWidgetClass = UCMPrototypeVitalsWidget::StaticClass();
 	SetCanBeDamaged(true);
 	ReticleWidgetClass = UCMPrototypeReticleWidget::StaticClass();
+	MissionTrackerWidgetClass = UCMPrototypeMissionTrackerWidget::StaticClass();
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 	// Player capsules must be struck by soldiers' Visibility hitscan.
@@ -188,6 +190,7 @@ void AColonialMercenariesCharacter::PawnClientRestart()
 	Super::PawnClientRestart();
 	EnsureLocalReticleWidget();
 	EnsureLocalVitalsWidget();
+	EnsureLocalMissionTrackerWidget();
 }
 
 void AColonialMercenariesCharacter::EnsureLocalReticleWidget()
@@ -239,6 +242,27 @@ void AColonialMercenariesCharacter::EnsureLocalVitalsWidget()
 	}
 }
 
+void AColonialMercenariesCharacter::EnsureLocalMissionTrackerWidget()
+{
+	APlayerController* LocalPlayer = Cast<APlayerController>(GetController());
+	if (!IsValid(LocalPlayer) || !LocalPlayer->IsLocalController()
+		|| !IsLocallyControlled() || !MissionTrackerWidgetClass)
+	{
+		return;
+	}
+
+	if (!IsValid(ActiveMissionTrackerWidget))
+	{
+		ActiveMissionTrackerWidget = CreateWidget<UCMPrototypeMissionTrackerWidget>(
+			LocalPlayer, MissionTrackerWidgetClass);
+	}
+	if (IsValid(ActiveMissionTrackerWidget)
+		&& !ActiveMissionTrackerWidget->IsInViewport())
+	{
+		ActiveMissionTrackerWidget->AddToPlayerScreen(12);
+	}
+}
+
 void AColonialMercenariesCharacter::EndPlay(
 	const EEndPlayReason::Type EndPlayReason)
 {
@@ -253,6 +277,11 @@ void AColonialMercenariesCharacter::EndPlay(
 	{
 		ActiveVitalsWidget->RemoveFromParent();
 		ActiveVitalsWidget = nullptr;
+	}
+	if (IsValid(ActiveMissionTrackerWidget))
+	{
+		ActiveMissionTrackerWidget->RemoveFromParent();
+		ActiveMissionTrackerWidget = nullptr;
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -322,6 +351,7 @@ void AColonialMercenariesCharacter::SetupPlayerInputComponent(UInputComponent* P
 	// the client restart callback. Guarded against duplicate UI creation.
 	EnsureLocalReticleWidget();
 	EnsureLocalVitalsWidget();
+	EnsureLocalMissionTrackerWidget();
 }
 
 void AColonialMercenariesCharacter::Move(const FInputActionValue& Value)
