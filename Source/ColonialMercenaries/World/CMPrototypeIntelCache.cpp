@@ -3,10 +3,13 @@
 
 #include "ColonialMercenariesCharacter.h"
 #include "World/CMPrototypeContractTerminal.h"
+#include "Combat/CMHealthComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "GameFramework/Controller.h"
 #include "Net/UnrealNetwork.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -15,8 +18,8 @@ ACMPrototypeIntelCache::ACMPrototypeIntelCache()
     PrimaryActorTick.bCanEverTick = false;
     bReplicates = true;
     bAlwaysRelevant = true;
-    SetReplicateMovement(false);
-
+    SetReplicateMovement(true); // Ground-drop and carried attachment updates.
+    
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
     SetRootComponent(SceneRoot);
 
@@ -50,44 +53,207 @@ ACMPrototypeIntelCache::ACMPrototypeIntelCache()
 void ACMPrototypeIntelCache::BeginPlay()
 {
     Super::BeginPlay();
-    RefreshStatusLabel();
+    RefreshPresentation();
+}
+
+void ACMPrototypeIntelCache::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    UnbindCarrierDelegates();
+    Super::EndPlay(EndPlayReason);
+}
+
+void ACMPrototypeIntelCache::UnbindCarrierDelegates()
+{
+    if (IsValid(Carrier))
+    {
+        if (UCMHealthComponent* Health = Carrier->GetHealthComponent())
+        {
+            Health->OnDied.RemoveDynamic(
+                this, &ACMPrototypeIntelCache::OnCarrierIncapacitated);
+        }
+        Carrier->OnDestroyed.RemoveDynamic(
+            this, &ACMPrototypeIntelCache::OnCarrierActorDestroyed);
+    }
+
+    if (AController* PreviousController = CarrierController.Get())
+    {
+        PreviousController->OnDestroyed.RemoveDynamic(
+            this, &ACMPrototypeIntelCache::OnCarrierControllerDestroyed);
+    }
+    CarrierController.Reset();
 }
 
 void ACMPrototypeIntelCache::TryInteract(AColonialMercenariesCharacter* Player)
 {
-    if (!HasAuthority() || bRecovered || !IsValid(ContractTerminal))
+    if (!HasAuthority() || bDelivered || IsValid(Carrier)
+        || !IsValid(Player) || Player->IsIncapacitated()
+        || !IsValid(ContractTerminal)
+        || FVector::DistSquared(
+            Player->GetActorLocation(), GetActorLocation()) > FMath::Square(300.0f))
     {
         return;
     }
 
-    if (ContractTerminal->TryRecoverIntel(Player, this))
+    // The first pickup updates shared contract progress. If intel is
+    // dropped after that, any teammate may retrieve the same world item.
+    const ECMPrototypeContractStage Stage = ContractTerminal->GetContractStage();
+    if (Stage == ECMPrototypeContractStage::Active)
     {
-        bRecovered = true;
-        RefreshStatusLabel();
-        ForceNetUpdate();
+        if (!ContractTerminal->TryRecoverIntel(Player, this))
+        {
+            return;
+        }
     }
-}
-
-void ACMPrototypeIntelCache::RefreshStatusLabel()
-{
-    if (!IsValid(StatusLabel))
+    else if (Stage != ECMPrototypeContractStage::IntelRecovered)
     {
         return;
     }
 
-    StatusLabel->SetText(FText::FromString(bRecovered
-        ? TEXT("RELAY INTEL RECOVERED")
-        : TEXT("RELAY INTELLIGENCE CACHE\n[F] RECOVER (CONTRACT REQUIRED)")));
+    Carrier = Player;
+    CarrierController = Player->GetController();
+    if (UCMHealthComponent* Health = Player->GetHealthComponent())
+    {
+        Health->OnDied.AddUniqueDynamic(
+            this, &ACMPrototypeIntelCache::OnCarrierIncapacitated);
+    }
+    Player->OnDestroyed.AddUniqueDynamic(
+        this, &ACMPrototypeIntelCache::OnCarrierActorDestroyed);
+    if (AController* Controller = CarrierController.Get())
+    {
+        Controller->OnDestroyed.AddUniqueDynamic(
+            this, &ACMPrototypeIntelCache::OnCarrierControllerDestroyed);
+    }
+
+    // A visible, tangible briefcase-sized object travels with its carrier.
+    // The mesh has no interaction collision while carried; otherwise F
+    // near HQ could select the carried intel instead of the terminal.
+    AttachToComponent(Player->GetRootComponent(),
+        FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+    SetActorRelativeLocation(FVector(-35.0f, 42.0f, 25.0f));
+
+    UE_LOG(LogTemp, Display,
+        TEXT("CM INTEL: %s is carrying relay intelligence."),
+        *Player->GetName());
+    RefreshPresentation();
+    ForceNetUpdate();
 }
 
-void ACMPrototypeIntelCache::OnRep_Recovered()
+void ACMPrototypeIntelCache::DropPhysicalIntel()
 {
-    RefreshStatusLabel();
+    if (!HasAuthority() || !Carrier)
+    {
+        return;
+    }
+
+    // Preserve the current in-world location before a pawn or controller
+    // disappears. Disconnection and incapacitation both release the item.
+    const FVector LastCarriedPosition = GetActorLocation();
+    UnbindCarrierDelegates();
+    Carrier = nullptr;
+    DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+
+    FVector DropPosition = LastCarriedPosition;
+    if (UWorld* World = GetWorld())
+    {
+        FHitResult Hit;
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(CMIntelDrop), false);
+        Params.AddIgnoredActor(this);
+        if (World->LineTraceSingleByChannel(
+            Hit,
+            LastCarriedPosition + FVector(0.0f, 0.0f, 150.0f),
+            LastCarriedPosition - FVector(0.0f, 0.0f, 1800.0f),
+            ECC_Visibility, Params) && Hit.bBlockingHit)
+        {
+            DropPosition.Z = Hit.ImpactPoint.Z;
+        }
+    }
+    SetActorLocation(DropPosition, false);
+
+    UE_LOG(LogTemp, Display,
+        TEXT("CM INTEL: Carrier lost. Intel dropped at %s."),
+        *DropPosition.ToString());
+    RefreshPresentation();
+    ForceNetUpdate();
+}
+
+void ACMPrototypeIntelCache::OnCarrierIncapacitated()
+{
+    DropPhysicalIntel();
+}
+
+void ACMPrototypeIntelCache::OnCarrierActorDestroyed(AActor* DestroyedActor)
+{
+    if (DestroyedActor == Carrier)
+    {
+        DropPhysicalIntel();
+    }
+}
+
+void ACMPrototypeIntelCache::OnCarrierControllerDestroyed(AActor* DestroyedActor)
+{
+    if (DestroyedActor == CarrierController.Get())
+    {
+        DropPhysicalIntel();
+    }
+}
+
+bool ACMPrototypeIntelCache::FinalizeDelivery(AColonialMercenariesCharacter* Player)
+{
+    if (!HasAuthority() || bDelivered || !IsCarriedBy(Player))
+    {
+        return false;
+    }
+
+    UnbindCarrierDelegates();
+    Carrier = nullptr;
+    DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+    bDelivered = true;
+
+    UE_LOG(LogTemp, Display,
+        TEXT("CM INTEL: Physical package delivered to HQ by %s."),
+        *GetNameSafe(Player));
+    RefreshPresentation();
+    ForceNetUpdate();
+    return true;
+}
+
+void ACMPrototypeIntelCache::RefreshPresentation()
+{
+    if (!IsValid(StatusLabel) || !IsValid(CacheBody))
+    {
+        return;
+    }
+
+    const bool bOnGround = !bDelivered && !IsValid(Carrier);
+    CacheBody->SetVisibility(!bDelivered);
+    CacheBody->SetCollisionEnabled(bOnGround
+        ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+    StatusLabel->SetVisibility(bOnGround);
+    if (bOnGround)
+    {
+        const bool bRecoverAgain = IsValid(ContractTerminal)
+            && ContractTerminal->GetContractStage()
+                == ECMPrototypeContractStage::IntelRecovered;
+        StatusLabel->SetText(FText::FromString(bRecoverAgain
+            ? TEXT("DROPPED RELAY INTEL\n[F] RETRIEVE")
+            : TEXT("RELAY INTELLIGENCE CACHE\n[F] RECOVER (CONTRACT REQUIRED)")));
+    }
+}
+
+void ACMPrototypeIntelCache::OnRep_Carrier()
+{
+    RefreshPresentation();
+}
+
+void ACMPrototypeIntelCache::OnRep_Delivered()
+{
+    RefreshPresentation();
 }
 
 void ACMPrototypeIntelCache::GetLifetimeReplicatedProps(
     TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-    DOREPLIFETIME(ACMPrototypeIntelCache, bRecovered);
+    DOREPLIFETIME(ACMPrototypeIntelCache, Carrier);
+    DOREPLIFETIME(ACMPrototypeIntelCache, bDelivered);
 }
