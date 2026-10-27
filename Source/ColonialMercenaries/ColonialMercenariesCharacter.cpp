@@ -853,6 +853,13 @@ void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
 
 	// Predict aiming presentation instantly for the local player.
 	bIsAiming = bNewAiming;
+	UpdateAimingPresentation();
+	if (!HasAuthority())
+	{
+		// The server must receive the changed RMB aim state before any
+		// hip-turn request that follows during an active fire hold.
+		ServerSetAiming(bNewAiming);
+	}
 	if (bIsAiming)
 	{
 		SetHipFireTurning(false);
@@ -860,12 +867,6 @@ void AColonialMercenariesCharacter::SetAiming(bool bNewAiming)
 	else if (bFireHeld)
 	{
 		SetHipFireTurning(true);
-	}
-	UpdateAimingPresentation();
-
-	if (!HasAuthority())
-	{
-		ServerSetAiming(bNewAiming);
 	}
 }
 
